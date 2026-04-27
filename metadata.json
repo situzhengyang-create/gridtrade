@@ -1,0 +1,6 @@
+{
+  "name": "网格易 - 专业网格交易计算器",
+  "description": "一个专业的股票/基金网格交易参数计算器，支持多策略管理、上下20格深度模拟及佣金利润自动换算。",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
