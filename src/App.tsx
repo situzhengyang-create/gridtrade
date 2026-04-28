@@ -31,10 +31,13 @@ import {
 import axios from 'axios';
 import { GridStrategy, GridLevel } from './types';
 import RichEditor from './components/RichEditor';
-import { fetchBacktestData } from './services/marketData';
+import { fetchBacktestData, fetchDiagnosticData } from './services/marketData';
+import { analyzeGridSuitability, DiagnosisReport } from './services/gridDiagnosticService';
+import { GridDiagnosisReport } from './components/GridDiagnosisReport';
 
 export default function App() {
   const [strategies, setStrategies] = useState<GridStrategy[]>([]);
+  const [diagnosisReport, setDiagnosisReport] = useState<{report: DiagnosisReport, symbol: string} | null>(null);
   const strategiesRef = React.useRef(strategies);
   useEffect(() => {
     strategiesRef.current = strategies;
@@ -43,21 +46,49 @@ export default function App() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isDiagnosing, setIsDiagnosing] = useState(false);
   const [isNotesFullScreen, setIsNotesFullScreen] = useState(false);
   const [isBacktesting, setIsBacktesting] = useState(false);
 
   // 初始化本地存储
   useEffect(() => {
     const saved = localStorage.getItem('grid_trader_strategies');
+    let loadedStrategies = [];
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        setStrategies(parsed);
-        if (parsed.length > 0) setActiveId(parsed[0].id);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          loadedStrategies = parsed;
+        }
       } catch (e) {
         console.error('无法解析策略配置', e);
       }
     }
+    
+    if (loadedStrategies.length === 0) {
+      const defaultStrategy: GridStrategy = {
+        id: crypto.randomUUID(),
+        name: '新网格策略',
+        initialPrice: undefined,
+        gridInterval: 3,
+        initialAmount: 3000,
+        stepValue: 0,
+        stepType: 'percent',
+        commissionRate: 0.005,
+        symbol: '515980',
+        securityName: '',
+        currentPrice: undefined,
+        lastPriceTime: undefined,
+        notes: '',
+        placedLevels: [],
+        triggeredLevels: [],
+        createdAt: Date.now()
+      };
+      loadedStrategies = [defaultStrategy];
+    }
+    
+    setStrategies(loadedStrategies);
+    setActiveId(loadedStrategies[0].id);
   }, []);
 
   // 保存到本地存储
@@ -72,14 +103,14 @@ export default function App() {
   const addStrategy = () => {
     const newStrategy: GridStrategy = {
       id: crypto.randomUUID(),
-      name: '',
+      name: '新网格策略',
       initialPrice: undefined,
       gridInterval: 3,
       initialAmount: 3000,
       stepValue: 0,
       stepType: 'percent',
       commissionRate: 0.005,
-      symbol: '',
+      symbol: '515980',
       securityName: '',
       currentPrice: undefined,
       lastPriceTime: undefined,
@@ -236,7 +267,7 @@ export default function App() {
               if (s.id !== effectId) return s;
               
               let nextName = s.name;
-              if (!nextName || nextName.startsWith('新策略 ')) {
+              if (!nextName || nextName.startsWith('新网格策略') || nextName.startsWith('新策略')) {
                 nextName = name;
               }
 
@@ -379,6 +410,20 @@ export default function App() {
 
       {/* 主界面 */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {diagnosisReport && (
+          <GridDiagnosisReport 
+            report={diagnosisReport.report} 
+            symbol={diagnosisReport.symbol} 
+            onClose={() => setDiagnosisReport(null)} 
+            onApplySuggestion={(min, max, step) => {
+              updateStrategy({
+                ...activeStrategy,
+                gridInterval: step,
+              });
+              setIsEditing(true);
+            }}
+          />
+        )}
         {activeStrategy ? (
           <>
             {/* 紧凑顶栏 */}
@@ -456,7 +501,7 @@ export default function App() {
                               <div className="relative group flex-1">
                                 <input 
                                   type="text"
-                                  placeholder="例: 159513"
+                                  placeholder="例: 515980"
                                   value={activeStrategy.symbol || ''}
                                   onChange={(e) => updateStrategy({...activeStrategy, symbol: e.target.value})}
                                   onKeyDown={(e) => {
@@ -464,21 +509,62 @@ export default function App() {
                                       getLivePrice(activeStrategy.symbol || '');
                                     }
                                   }}
-                                  className="input-field pr-10"
+                                  className="input-field pr-24"
                                 />
-                                <button 
-                                  onClick={() => getLivePrice(activeStrategy.symbol || '')}
-                                  disabled={isRefreshing || !activeStrategy.symbol}
-                                  className={`absolute right-1 top-1 bottom-1 px-2.5 flex items-center justify-center rounded-lg transition-all ${
-                                    activeStrategy.symbol ? 'text-blue-600 hover:bg-blue-50' : 'text-slate-200'
-                                  }`}
-                                >
-                                  {isRefreshing ? (
-                                    <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />
-                                  ) : (
-                                    <Check className="w-4 h-4" />
-                                  )}
-                                </button>
+                                <div className="absolute right-0 top-0 bottom-0 flex items-center">
+                                  <button 
+                                    onClick={async () => {
+                                      if (!activeStrategy.symbol) return;
+                                      setIsDiagnosing(true);
+                                      try {
+                                        const today = new Date().toISOString().split('T')[0];
+                                        const cacheKey = `diagnosis_cache_${activeStrategy.symbol}_${today}_v4`;
+                                        const cachedData = localStorage.getItem(cacheKey);
+                                        
+                                        if (cachedData) {
+                                          try {
+                                            const parsed = JSON.parse(cachedData);
+                                            if (parsed.metricsInfo && parsed.suggestion) {
+                                              setDiagnosisReport({ report: parsed, symbol: activeStrategy.symbol });
+                                              return;
+                                            }
+                                          } catch(e) {}
+                                        }
+
+                                        const data = await fetchDiagnosticData(activeStrategy.symbol);
+                                        if (data) {
+                                          const report = analyzeGridSuitability(data);
+                                          setDiagnosisReport({ report, symbol: activeStrategy.symbol });
+                                          localStorage.setItem(cacheKey, JSON.stringify(report));
+                                        } else {
+                                          alert("未能获取数据或数据不足");
+                                        }
+                                      } catch (error) {
+                                        console.error(error);
+                                        alert("分析过程中发生错误");
+                                      } finally {
+                                        setIsDiagnosing(false);
+                                      }
+                                    }}
+                                    disabled={isDiagnosing}
+                                    className="px-2 h-full text-[10px] font-bold text-blue-600 hover:text-blue-700 disabled:text-slate-400 flex items-center justify-center gap-1"
+                                  >
+                                    {isDiagnosing ? <RefreshCw className="w-3 h-3 animate-spin" /> : "分析"}
+                                  </button>
+                                  <button 
+                                    onClick={() => getLivePrice(activeStrategy.symbol || '')}
+                                    disabled={isRefreshing || !activeStrategy.symbol}
+                                    className={`px-2.5 h-full flex items-center justify-center rounded-r-lg transition-all ${
+                                      activeStrategy.symbol ? 'text-blue-600 hover:bg-blue-50' : 'text-slate-200'
+                                    }`}
+                                  >
+                                    {isRefreshing ? (
+                                      <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />
+                                    ) : (
+                                      <Check className="w-4 h-4" />
+                                    )}
+                                  </button>
+                                </div>
                               </div>
                               <button 
                                 onClick={() => handleBacktest(activeStrategy)}
@@ -510,11 +596,11 @@ export default function App() {
                                     <p className="text-[9px] text-amber-700/60 leading-tight">建议网格大小为 {activeStrategy.backtest.suggestedGridInterval}%</p>
                                   </div>
                                   <div className="flex flex-col gap-0.5">
-                                    <span className="text-[10px] font-bold text-amber-700/60 uppercase">最大历史回撤</span>
+                                    <span className="text-[10px] font-bold text-amber-700/60 uppercase">最大历史回撤 (1Y/3Y)</span>
                                     <span className="text-lg font-black text-red-500 flex items-baseline gap-0.5">
-                                      {activeStrategy.backtest.maxDrawdown}<span className="text-[10px]">%</span>
+                                      {activeStrategy.backtest.maxDrawdown1Y ?? '-'}<span className="text-[10px]">%</span> / {activeStrategy.backtest.maxDrawdown3Y ?? '-'}<span className="text-[10px]">%</span>
                                     </span>
-                                    <p className="text-[9px] text-amber-700/60 leading-tight">近3年最高点至最低点跌幅</p>
+                                    <p className="text-[9px] text-amber-700/60 leading-tight">近1年 / 3年最高点至最低点跌幅</p>
                                   </div>
                                   <div className="flex flex-col gap-0.5 col-span-2 sm:col-span-1">
                                     <span className="text-[10px] font-bold text-amber-700/60 uppercase">区间最低 / 最高</span>
@@ -540,14 +626,6 @@ export default function App() {
                                 </div>
                               </div>
                             )}
-                          </InputWrapper>
-                          <InputWrapper label="证券名称" sub="起个好记的名字">
-                            <input 
-                              type="text"
-                              value={activeStrategy.name}
-                              onChange={(e) => updateStrategy({...activeStrategy, name: e.target.value})}
-                              className="input-field"
-                            />
                           </InputWrapper>
                           <InputWrapper label="初始参考价 (¥)" sub={activeStrategy.currentPrice ? `实时: ${activeStrategy.currentPrice} (${new Date(activeStrategy.lastPriceTime || 0).toLocaleTimeString()})` : "当前市场价格"}>
                             <div className="relative">
@@ -701,14 +779,14 @@ export default function App() {
                         <table className="w-full text-left border-collapse min-w-[280px]">
                           <thead>
                             <tr className="bg-slate-900 text-white whitespace-nowrap">
-                              <th className="px-1 py-2 text-[10px] font-bold text-center">层</th>
-                              <th className="px-1 py-2 text-[10px] font-bold">价格</th>
-                              <th className="px-1 py-2 text-[10px] font-bold">金额</th>
-                              <th className="px-1 py-2 text-[10px] font-bold text-blue-300">利润</th>
-                              <th className="px-1 py-2 text-[10px] font-bold text-center">状态</th>
+                              <th className="px-1 py-2 text-xs font-bold text-center">层</th>
+                              <th className="px-1 py-2 text-xs font-bold">价格</th>
+                              <th className="px-1 py-2 text-xs font-bold">金额</th>
+                              <th className="px-1 py-2 text-xs font-bold text-blue-300">利润</th>
+                              <th className="px-1 py-2 text-xs font-bold text-center">状态</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-100 text-[11px]">
+                          <tbody className="divide-y divide-slate-100 text-sm">
                             {gridData.map((row) => {
                               const isBelowMaxDrawdown = activeStrategy.backtest?.maxDrawdown !== undefined && 
                                                          row.level < 0 && 
@@ -723,7 +801,7 @@ export default function App() {
                                   <div className="flex flex-col items-center gap-0.5">
                                     <span>{row.level === 0 ? '0' : row.level}</span>
                                     {row.percentFromInitial !== undefined && row.level !== 0 && (
-                                      <span className={`text-[9px] font-normal tracking-tighter ${isBelowMaxDrawdown ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
+                                      <span className={`text-[10px] font-normal tracking-tighter ${isBelowMaxDrawdown ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
                                         {row.percentFromInitial > 0 ? '+' : ''}{row.percentFromInitial}%
                                       </span>
                                     )}
@@ -736,7 +814,7 @@ export default function App() {
                                   <div className="flex flex-col gap-0.5">
                                     <CopyableValue value={row.amount.toString()} displayValue={row.amount.toLocaleString()} />
                                     {row.cumulativeAmount !== undefined && row.level !== 0 && (
-                                      <span className="text-[9px] text-slate-400 font-normal tracking-tighter opacity-80 decoration-slate-300">
+                                      <span className="text-[10px] text-slate-400 font-normal tracking-tighter opacity-80 decoration-slate-300">
                                         累计: {row.cumulativeAmount.toLocaleString()}
                                       </span>
                                     )}
@@ -747,7 +825,7 @@ export default function App() {
                                 </td>
                                 <td className="px-1 py-3.5 text-center">
                                   {row.level === 0 ? (
-                                    <span className="text-[10px] font-bold text-slate-400">参考位</span>
+                                    <span className="text-xs font-bold text-slate-400">参考位</span>
                                   ) : (
                                     <div className="flex items-center justify-center gap-3">
                                       <button 

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { BacktestResult } from '../types';
+import { RawData } from './gridDiagnosticService';
 
 export async function fetchBacktestData(symbol: string): Promise<BacktestResult | null> {
   try {
@@ -105,6 +106,47 @@ export async function fetchBacktestData(symbol: string): Promise<BacktestResult 
     };
   } catch (err) {
     console.error('Error fetching backtest data:', err);
+    return null;
+  }
+}
+
+export async function fetchDiagnosticData(symbol: string): Promise<RawData[] | null> {
+  try {
+    const formattedSymbol = symbol.toLowerCase().replace(/sh|sz/, '');
+      
+    const end = new Date().toISOString().slice(0,10).replace(/-/g, '');
+    const twoYearsAgo = new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000);
+    const start = twoYearsAgo.toISOString().slice(0,10).replace(/-/g, '');
+    
+    let klines: string[] = [];
+    
+    // 尝试两个市场的前缀: 0(深交所) 和 1(上交所)
+    for (const prefix of ['0', '1']) {
+      const secid = `${prefix}.${formattedSymbol}`;
+      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=7eea3edcaed734bea9cbfc24409ed989&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`;
+      
+      const response = await axios.get(url);
+      if (response.data && response.data.data && response.data.data.klines && response.data.data.klines.length > 0) {
+        klines = response.data.data.klines;
+        break;
+      }
+    }
+    
+    if (klines.length === 0) {
+      return null;
+    }
+
+    return klines.map(kline => {
+      const parts = kline.split(',');
+      return {
+        date: parts[0],
+        open: parseFloat(parts[1]),
+        close: parseFloat(parts[2]),
+        change_pct: parseFloat(parts[8]) // f59 is percentage change
+      };
+    });
+  } catch (err) {
+    console.error('Error fetching diagnosis data:', err);
     return null;
   }
 }

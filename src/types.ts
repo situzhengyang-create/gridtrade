@@ -11,7 +11,9 @@ export interface GridLevel {
 export interface BacktestResult {
   averageAmplitude: number;
   medianAmplitude?: number;
-  maxDrawdown: number;
+  maxDrawdown: number; // Keep for compatibility or remove later
+  maxDrawdown1Y?: number;
+  maxDrawdown3Y?: number;
   minPrice: number;
   maxPrice: number;
   suggestedGridInterval: number;
