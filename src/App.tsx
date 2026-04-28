@@ -18,15 +18,28 @@ import {
   Menu,
   X,
   Check,
-  Copy
+  Copy,
+  RefreshCw,
+  Search,
+  Maximize2,
+  Minimize2,
+  FileText
 } from 'lucide-react';
+import axios from 'axios';
 import { GridStrategy, GridLevel } from './types';
+import RichEditor from './components/RichEditor';
 
 export default function App() {
   const [strategies, setStrategies] = useState<GridStrategy[]>([]);
+  const strategiesRef = React.useRef(strategies);
+  useEffect(() => {
+    strategiesRef.current = strategies;
+  }, [strategies]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isNotesFullScreen, setIsNotesFullScreen] = useState(false);
 
   // 初始化本地存储
   useEffect(() => {
@@ -55,12 +68,17 @@ export default function App() {
     const newStrategy: GridStrategy = {
       id: crypto.randomUUID(),
       name: '新策略 ' + (strategies.length + 1),
-      initialPrice: 1.0,
+      initialPrice: undefined,
       gridInterval: 3,
       initialAmount: 3000,
       stepValue: 0,
       stepType: 'percent',
       commissionRate: 0.005,
+      symbol: '',
+      securityName: '',
+      currentPrice: undefined,
+      lastPriceTime: undefined,
+      notes: '',
       placedLevels: [],
       triggeredLevels: [],
       createdAt: Date.now()
@@ -87,6 +105,9 @@ export default function App() {
   const calculateGrid = (strategy: GridStrategy): GridLevel[] => {
     const levels: GridLevel[] = [];
     const { initialPrice, gridInterval, initialAmount, stepValue, stepType, commissionRate } = strategy;
+    
+    if (initialPrice === undefined || initialPrice <= 0) return [];
+
     const rate = commissionRate / 100;
     
     for (let i = 0; i >= -20; i--) {
@@ -130,12 +151,95 @@ export default function App() {
 
   const gridData = useMemo(() => activeStrategy ? calculateGrid(activeStrategy) : [], [activeStrategy]);
 
+  // 自动刷新逻辑：在中国大陆交易期间每5分钟获取一次所有有代码的策略最新价
+  useEffect(() => {
+    const checkAndRefresh = async () => {
+      const now = new Date();
+      const day = now.getDay();
+      const hour = now.getHours();
+      const minute = now.getMinutes();
+      
+      // A股交易时间：周一至周五 9:15-11:30, 13:00-15:00
+      const isWeekday = day >= 1 && day <= 5;
+      const isMorning = (hour === 9 && minute >= 15) || (hour === 10) || (hour === 11 && minute <= 30);
+      const isAfternoon = (hour >= 13 && hour < 15);
+      
+      if (isWeekday && (isMorning || isAfternoon)) {
+        // 刷新所有包含代码的策略
+        for (const s of strategiesRef.current) {
+          if (s.symbol) {
+            await getLivePrice(s.symbol, s.id);
+          }
+        }
+      }
+    };
+
+    // 初始执行一次
+    checkAndRefresh();
+
+    // 每 5 分钟执行一次
+    const interval = setInterval(checkAndRefresh, 300000);
+    return () => clearInterval(interval);
+  }, [strategies.length]); // 仅在策略数量变化时重新绑定定时器，内部逻辑会循环所有策略
+
+  const getLivePrice = async (symbol: string, targetId?: string) => {
+    if (!symbol) return;
+    const effectId = targetId || activeId;
+    if (!effectId) return;
+
+    setIsRefreshing(true);
+    try {
+      const formattedSymbol = symbol.toLowerCase().startsWith('sh') || symbol.toLowerCase().startsWith('sz') 
+        ? symbol.toLowerCase() 
+        : (symbol.startsWith('6') || symbol.startsWith('5') ? 'sh' + symbol : 'sz' + symbol);
+      
+      const response = await axios.get(`https://qt.gtimg.cn/q=s_${formattedSymbol}`);
+      const text = response.data;
+      
+      const match = text.match(/="(.*)"/);
+      if (match && match[1]) {
+        const parts = match[1].split('~');
+        if (parts.length > 3) {
+          const name = parts[1];
+          const price = parseFloat(parts[3]);
+          if (!isNaN(price)) {
+            setStrategies(prev => prev.map(s => {
+              if (s.id !== effectId) return s;
+              
+              let nextName = s.name;
+              // 只有当名称是默认的或空的时候才自动替换
+              if (!nextName || nextName.startsWith('新策略 ')) {
+                nextName = name;
+              }
+
+              // 如果初始参考价没有填（或为0），则自动填充为当前价格
+              const shouldUpdateInitialPrice = !s.initialPrice || s.initialPrice === 0;
+
+              return {
+                ...s,
+                securityName: name,
+                name: nextName,
+                currentPrice: price,
+                initialPrice: shouldUpdateInitialPrice ? price : s.initialPrice,
+                lastPriceTime: Date.now()
+              };
+            }));
+          }
+        }
+      }
+    } catch (error) {
+      console.error('获取价格失败:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const Sidebar = () => (
     <div className="flex flex-col h-full bg-white">
       <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-900 text-white">
         <div className="flex items-center gap-2">
           <Grid3X3 className="w-5 h-5 text-blue-400" />
-          <h1 className="text-lg font-bold tracking-tight">网格易</h1>
+          <h1 className="text-lg font-bold tracking-tight">GridTrade</h1>
         </div>
         <button 
           onClick={() => setIsSidebarOpen(false)}
@@ -172,7 +276,7 @@ export default function App() {
                   {s.name}
                 </h3>
                 <p className="text-[10px] text-slate-400 mt-0.5">
-                  基准: {s.initialPrice} | {s.gridInterval}%
+                  基准: {s.initialPrice ?? '未设'} | {s.gridInterval}%
                 </p>
               </div>
               <button 
@@ -243,7 +347,30 @@ export default function App() {
                 >
                   <Menu className="w-5 h-5" />
                 </button>
-                <h2 className="text-sm font-bold text-slate-800 truncate select-none">{activeStrategy.name}</h2>
+                <div className="flex flex-col min-w-0">
+                  <h2 className="text-sm font-bold text-slate-800 truncate select-none">{activeStrategy.name}</h2>
+                  {activeStrategy.symbol && (
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] font-mono text-slate-500 uppercase">{activeStrategy.symbol}</span>
+                      {activeStrategy.currentPrice && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-blue-600">¥{activeStrategy.currentPrice}</span>
+                          <span className="text-[9px] text-slate-400">
+                            {new Date(activeStrategy.lastPriceTime || 0).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </span>
+                        </div>
+                      )}
+                      <button 
+                        onClick={() => getLivePrice(activeStrategy.symbol || '')}
+                        disabled={isRefreshing}
+                        className="p-0.5 text-slate-400 hover:text-blue-600 disabled:opacity-30 transition-colors"
+                        title="刷新价格"
+                      >
+                        <RefreshCw className={`w-2.5 h-2.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
               
               <div className="flex bg-slate-100 rounded-lg p-0.5 shrink-0">
@@ -281,6 +408,35 @@ export default function App() {
                           <h3 className="font-bold text-slate-700 text-xs">策略核心参数</h3>
                         </div>
                         <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-sm">
+                          <InputWrapper label="股票/基金代码" sub="确认后将自动填充价格与名称">
+                            <div className="relative group">
+                              <input 
+                                type="text"
+                                placeholder="例: 600519 或 sz000001"
+                                value={activeStrategy.symbol || ''}
+                                onChange={(e) => updateStrategy({...activeStrategy, symbol: e.target.value})}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    getLivePrice(activeStrategy.symbol || '');
+                                  }
+                                }}
+                                className="input-field pr-10"
+                              />
+                              <button 
+                                onClick={() => getLivePrice(activeStrategy.symbol || '')}
+                                disabled={isRefreshing || !activeStrategy.symbol}
+                                className={`absolute right-1 top-1 bottom-1 px-2.5 flex items-center justify-center rounded-lg transition-all ${
+                                  activeStrategy.symbol ? 'text-blue-600 hover:bg-blue-50' : 'text-slate-200'
+                                }`}
+                              >
+                                {isRefreshing ? (
+                                  <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />
+                                ) : (
+                                  <Check className="w-4 h-4" />
+                                )}
+                              </button>
+                            </div>
+                          </InputWrapper>
                           <InputWrapper label="策略名称" sub="起个好记的名字">
                             <input 
                               type="text"
@@ -289,15 +445,29 @@ export default function App() {
                               className="input-field"
                             />
                           </InputWrapper>
-                          <InputWrapper label="初始参考价 (¥)" sub="当前市场价格">
-                            <input 
-                              type="number"
-                              step="0.001"
-                              inputMode="decimal"
-                              value={activeStrategy.initialPrice}
-                              onChange={(e) => updateStrategy({...activeStrategy, initialPrice: parseFloat(e.target.value) || 0})}
-                              className="input-field"
-                            />
+                          <InputWrapper label="初始参考价 (¥)" sub={activeStrategy.currentPrice ? `实时: ${activeStrategy.currentPrice} (${new Date(activeStrategy.lastPriceTime || 0).toLocaleTimeString()})` : "当前市场价格"}>
+                            <div className="relative">
+                              <input 
+                                type="number"
+                                step="0.001"
+                                inputMode="decimal"
+                                value={activeStrategy.initialPrice ?? ''}
+                                onChange={(e) => {
+                                  const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
+                                  updateStrategy({...activeStrategy, initialPrice: val});
+                                }}
+                                className="input-field"
+                                placeholder="未设置"
+                              />
+                              {activeStrategy.currentPrice && (
+                                <button 
+                                  onClick={() => updateStrategy({...activeStrategy, initialPrice: activeStrategy.currentPrice || 0})}
+                                  className="absolute right-1 top-1 bottom-1 px-2 text-[10px] text-blue-600 font-bold hover:bg-blue-50 rounded"
+                                >
+                                  点此同步
+                                </button>
+                              )}
+                            </div>
                           </InputWrapper>
                           <InputWrapper label="单个网格间距 (%)" sub="每跌多少买入一笔">
                             <input 
@@ -366,8 +536,36 @@ export default function App() {
                         </div>
                       </div>
 
+                      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div className="bg-slate-50/50 px-4 py-2 border-b border-slate-100 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <FileText className="w-4 h-4 text-indigo-500" />
+                            <h3 className="font-bold text-slate-700 text-xs">策略笔记</h3>
+                          </div>
+                          <button 
+                            onClick={() => setIsNotesFullScreen(true)}
+                            className="p-1 hover:bg-slate-200 rounded transition-colors text-slate-400 hover:text-slate-600"
+                            title="全屏编辑"
+                          >
+                            <Maximize2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <div className="p-0 h-64 sm:h-80 overflow-hidden bg-white">
+                          <RichEditor 
+                            value={activeStrategy.notes || ''}
+                            onChange={(html) => updateStrategy({...activeStrategy, notes: html})}
+                            placeholder="在此输入您的策略思路、注意事项等..."
+                          />
+                        </div>
+                      </div>
+
                       <button 
-                        onClick={() => setIsEditing(false)}
+                        onClick={() => {
+                          setIsEditing(false);
+                          if (activeStrategy.symbol) {
+                            getLivePrice(activeStrategy.symbol);
+                          }
+                        }}
                         className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-100 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                       >
                         <Save className="w-4 h-4" />
@@ -480,6 +678,35 @@ export default function App() {
           <EmptyState onAdd={addStrategy} />
         )}
       </div>
+
+      {/* 全屏笔记编辑器 */}
+      <AnimatePresence>
+        {isNotesFullScreen && activeStrategy && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-white z-[60] flex flex-col"
+          >
+            <div className="flex-1 overflow-hidden bg-white">
+              <RichEditor 
+                value={activeStrategy.notes || ''}
+                onChange={(html) => updateStrategy({...activeStrategy, notes: html})}
+                placeholder="在此输入您的策略思路、注意事项等..."
+                rightToolbar={
+                  <button 
+                    onClick={() => setIsNotesFullScreen(false)}
+                    className="flex items-center gap-1.5 px-2.5 py-1 hover:bg-slate-200/50 rounded-md transition-all text-slate-500 hover:text-slate-700 text-xs font-bold"
+                  >
+                    <Minimize2 className="w-3.5 h-3.5" />
+                    退出全屏
+                  </button>
+                }
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -547,20 +774,14 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="max-w-xs space-y-4"
+        className="w-full max-w-xs space-y-6"
       >
         <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
           <Grid3X3 className="w-8 h-8 text-blue-500" />
         </div>
-        <div className="space-y-1">
-          <h2 className="text-xl font-bold text-slate-900">开始量化交易</h2>
-          <p className="text-slate-400 text-xs leading-relaxed">
-            为您计算精确的买入点与利润预期，让每一次回调都成为增持机会。
-          </p>
-        </div>
         <button 
           onClick={onAdd}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-100 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+          className="w-[250px] mx-auto bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-100 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
         >
           <Plus className="w-4 h-4" />
           立即创建方案

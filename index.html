@@ -3,7 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>网格易 - 专业网格交易计算器</title>
+    <title>GridTrade - 专业网格交易计算器</title>
+    <script>
+      // 解决某些库尝试重写 read-only window.fetch 的问题
+      (function() {
+        try {
+          const originalFetch = window.fetch;
+          if (originalFetch) {
+            Object.defineProperty(window, 'fetch', {
+              get: function() { return originalFetch; },
+              set: function(val) { console.warn('Ignored attempt to overwrite window.fetch'); },
+              configurable: true,
+              enumerable: true
+            });
+          }
+        } catch (e) {
+          console.warn('Failed to make fetch writable:', e);
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
