@@ -4,6 +4,8 @@ export interface GridLevel {
   amount: number;
   profit: number;
   type: 'buy' | 'sell' | 'initial';
+  cumulativeAmount?: number;
+  percentFromInitial?: number;
 }
 
 export interface BacktestResult {

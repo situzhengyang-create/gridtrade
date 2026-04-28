@@ -124,9 +124,12 @@ export default function App() {
     
     const suggestedBottom = strategy.backtest?.suggestedBottom;
 
+    let cumulativeAmount = 0;
+
     for (let i = 0; i >= -100; i--) {
-      // 价格计算：采用几何间距
-      const price = initialPrice * Math.pow(1 + gridInterval / 100, i);
+      // 价格计算：采用等距 (1 + 间距 * 层数)
+      const price = initialPrice * (1 + (gridInterval / 100) * i);
+      const percentFromInitial = ((price / initialPrice) - 1) * 100;
       
       // Stop condition based on dynamically suggested bottom or fallback to 20 grids
       if (suggestedBottom) {
@@ -145,11 +148,13 @@ export default function App() {
         }
       }
 
+      cumulativeAmount += amount;
+
       let netProfit = 0;
       if (i < 0) {
         // 先买后卖逻辑：在当前层级(i)买入，在上一层级(i+1)卖出
         const buyPrice = price;
-        const sellPrice = initialPrice * Math.pow(1 + gridInterval / 100, i + 1);
+        const sellPrice = initialPrice * (1 + (gridInterval / 100) * (i + 1));
         const qty = amount / buyPrice; // 买入数量
         
         const buyFee = amount * rate; // 买入手续费
@@ -164,7 +169,9 @@ export default function App() {
         price: Number(price.toFixed(4)),
         amount: Math.round(amount),
         profit: Number(netProfit.toFixed(2)),
-        type: i === 0 ? 'initial' : 'buy'
+        type: i === 0 ? 'initial' : 'buy',
+        cumulativeAmount: Math.round(cumulativeAmount),
+        percentFromInitial: Number(percentFromInitial.toFixed(2))
       });
     }
     
@@ -702,19 +709,38 @@ export default function App() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 text-[11px]">
-                            {gridData.map((row) => (
+                            {gridData.map((row) => {
+                              const isBelowMaxDrawdown = activeStrategy.backtest?.maxDrawdown !== undefined && 
+                                                         row.level < 0 && 
+                                                         row.percentFromInitial !== undefined && 
+                                                         Math.abs(row.percentFromInitial) > activeStrategy.backtest.maxDrawdown;
+                              return (
                               <tr 
                                 key={row.level} 
-                                className={`transition-colors hover:bg-slate-50 ${row.level === 0 ? 'bg-amber-50/50' : ''}`}
+                                className={`transition-colors hover:bg-slate-50 ${row.level === 0 ? 'bg-amber-50/50' : (isBelowMaxDrawdown ? 'bg-red-50/50' : '')}`}
                               >
                                 <td className="px-1 py-3.5 font-mono text-slate-500 font-bold text-center">
-                                  {row.level === 0 ? '0' : row.level}
+                                  <div className="flex flex-col items-center gap-0.5">
+                                    <span>{row.level === 0 ? '0' : row.level}</span>
+                                    {row.percentFromInitial !== undefined && row.level !== 0 && (
+                                      <span className={`text-[9px] font-normal tracking-tighter ${isBelowMaxDrawdown ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
+                                        {row.percentFromInitial > 0 ? '+' : ''}{row.percentFromInitial}%
+                                      </span>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className={`px-1 py-3.5 font-bold ${row.level === 0 ? 'text-slate-900' : (row.level > 0 ? 'text-red-500' : 'text-green-500')}`}>
                                   <CopyableValue value={row.price.toString()} />
                                 </td>
                                 <td className="px-1 py-3.5 font-medium text-slate-700">
-                                  <CopyableValue value={row.amount.toString()} displayValue={row.amount.toLocaleString()} />
+                                  <div className="flex flex-col gap-0.5">
+                                    <CopyableValue value={row.amount.toString()} displayValue={row.amount.toLocaleString()} />
+                                    {row.cumulativeAmount !== undefined && row.level !== 0 && (
+                                      <span className="text-[9px] text-slate-400 font-normal tracking-tighter opacity-80 decoration-slate-300">
+                                        累计: {row.cumulativeAmount.toLocaleString()}
+                                      </span>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className={`px-1 py-3.5 font-bold ${row.level !== 0 ? 'text-blue-600' : 'text-slate-300'}`}>
                                   {row.level !== 0 ? `+${row.profit}` : '-'}
@@ -770,7 +796,8 @@ export default function App() {
                                   )}
                                 </td>
                               </tr>
-                            ))}
+                            );
+                            })}
                           </tbody>
                         </table>
                       </div>
