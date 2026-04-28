@@ -23,11 +23,15 @@ import {
   Search,
   Maximize2,
   Minimize2,
-  FileText
+  FileText,
+  Activity,
+  History,
+  Info
 } from 'lucide-react';
 import axios from 'axios';
 import { GridStrategy, GridLevel } from './types';
 import RichEditor from './components/RichEditor';
+import { fetchBacktestData } from './services/marketData';
 
 export default function App() {
   const [strategies, setStrategies] = useState<GridStrategy[]>([]);
@@ -40,6 +44,7 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isNotesFullScreen, setIsNotesFullScreen] = useState(false);
+  const [isBacktesting, setIsBacktesting] = useState(false);
 
   // 初始化本地存储
   useEffect(() => {
@@ -67,7 +72,7 @@ export default function App() {
   const addStrategy = () => {
     const newStrategy: GridStrategy = {
       id: crypto.randomUUID(),
-      name: '新策略 ' + (strategies.length + 1),
+      name: '',
       initialPrice: undefined,
       gridInterval: 3,
       initialAmount: 3000,
@@ -104,15 +109,31 @@ export default function App() {
 
   const calculateGrid = (strategy: GridStrategy): GridLevel[] => {
     const levels: GridLevel[] = [];
-    const { initialPrice, gridInterval, initialAmount, stepValue, stepType, commissionRate } = strategy;
+    const { 
+      initialPrice, 
+      gridInterval = 0, 
+      initialAmount = 0, 
+      stepValue = 0, 
+      stepType, 
+      commissionRate = 0 
+    } = strategy;
     
     if (initialPrice === undefined || initialPrice <= 0) return [];
 
     const rate = commissionRate / 100;
     
-    for (let i = 0; i >= -20; i--) {
+    const suggestedBottom = strategy.backtest?.suggestedBottom;
+
+    for (let i = 0; i >= -100; i--) {
       // 价格计算：采用几何间距
       const price = initialPrice * Math.pow(1 + gridInterval / 100, i);
+      
+      // Stop condition based on dynamically suggested bottom or fallback to 20 grids
+      if (suggestedBottom) {
+        if (i < 0 && price < suggestedBottom) break;
+      } else {
+        if (i < -20) break;
+      }
       
       let amount = initialAmount;
       if (i !== 0) {
@@ -146,6 +167,7 @@ export default function App() {
         type: i === 0 ? 'initial' : 'buy'
       });
     }
+    
     return levels;
   };
 
@@ -207,12 +229,10 @@ export default function App() {
               if (s.id !== effectId) return s;
               
               let nextName = s.name;
-              // 只有当名称是默认的或空的时候才自动替换
               if (!nextName || nextName.startsWith('新策略 ')) {
                 nextName = name;
               }
 
-              // 如果初始参考价没有填（或为0），则自动填充为当前价格
               const shouldUpdateInitialPrice = !s.initialPrice || s.initialPrice === 0;
 
               return {
@@ -231,6 +251,22 @@ export default function App() {
       console.error('获取价格失败:', error);
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  const handleBacktest = async (strategy: GridStrategy) => {
+    if (!strategy.symbol) {
+      alert("请输入证券代码");
+      return;
+    }
+    setIsBacktesting(true);
+    const result = await fetchBacktestData(strategy.symbol);
+    setIsBacktesting(false);
+    if (result) {
+      updateStrategy({ ...strategy, backtest: result });
+      alert("回测数据获取成功！已经生成历史建议");
+    } else {
+      alert("未能获取到该代码的回测数据，请检查代码是否正确（例如 A 股股票 600519，或者 sz000001）");
     }
   };
 
@@ -276,7 +312,7 @@ export default function App() {
                   {s.name}
                 </h3>
                 <p className="text-[10px] text-slate-400 mt-0.5">
-                  基准: {s.initialPrice ?? '未设'} | {s.gridInterval}%
+                  基准: {s.initialPrice ?? '--'} | {s.gridInterval}%
                 </p>
               </div>
               <button 
@@ -409,35 +445,96 @@ export default function App() {
                         </div>
                         <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-sm">
                           <InputWrapper label="股票/基金代码" sub="确认后将自动填充价格与名称">
-                            <div className="relative group">
-                              <input 
-                                type="text"
-                                placeholder="例: 600519 或 sz000001"
-                                value={activeStrategy.symbol || ''}
-                                onChange={(e) => updateStrategy({...activeStrategy, symbol: e.target.value})}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    getLivePrice(activeStrategy.symbol || '');
-                                  }
-                                }}
-                                className="input-field pr-10"
-                              />
+                            <div className="flex gap-2">
+                              <div className="relative group flex-1">
+                                <input 
+                                  type="text"
+                                  placeholder="例: 159513"
+                                  value={activeStrategy.symbol || ''}
+                                  onChange={(e) => updateStrategy({...activeStrategy, symbol: e.target.value})}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      getLivePrice(activeStrategy.symbol || '');
+                                    }
+                                  }}
+                                  className="input-field pr-10"
+                                />
+                                <button 
+                                  onClick={() => getLivePrice(activeStrategy.symbol || '')}
+                                  disabled={isRefreshing || !activeStrategy.symbol}
+                                  className={`absolute right-1 top-1 bottom-1 px-2.5 flex items-center justify-center rounded-lg transition-all ${
+                                    activeStrategy.symbol ? 'text-blue-600 hover:bg-blue-50' : 'text-slate-200'
+                                  }`}
+                                >
+                                  {isRefreshing ? (
+                                    <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />
+                                  ) : (
+                                    <Check className="w-4 h-4" />
+                                  )}
+                                </button>
+                              </div>
                               <button 
-                                onClick={() => getLivePrice(activeStrategy.symbol || '')}
-                                disabled={isRefreshing || !activeStrategy.symbol}
-                                className={`absolute right-1 top-1 bottom-1 px-2.5 flex items-center justify-center rounded-lg transition-all ${
-                                  activeStrategy.symbol ? 'text-blue-600 hover:bg-blue-50' : 'text-slate-200'
-                                }`}
+                                onClick={() => handleBacktest(activeStrategy)}
+                                disabled={isBacktesting}
+                                className="px-3 py-1 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-lg disabled:opacity-50 flex items-center gap-1 font-bold text-xs flex-shrink-0 border border-amber-200 transition-colors"
+                                title="一年数据智能回测（建议网格/最大回撤等）"
                               >
-                                {isRefreshing ? (
-                                  <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />
-                                ) : (
-                                  <Check className="w-4 h-4" />
-                                )}
+                                {isBacktesting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
+                                数据回测
                               </button>
                             </div>
+                            
+                            {activeStrategy.backtest && (
+                              <div className="mt-3 bg-amber-50 rounded-xl shadow-sm border border-amber-200/60 overflow-hidden">
+                                <div className="bg-amber-100/50 px-3 py-1.5 border-b border-amber-100 flex items-center justify-between">
+                                  <div className="flex items-center gap-1.5 text-amber-700">
+                                    <History className="w-3.5 h-3.5" />
+                                    <h3 className="font-bold text-[11px]">历史数据回顾</h3>
+                                  </div>
+                                  <span className="text-[10px] text-amber-600/70">更于 {new Date(activeStrategy.backtest.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                </div>
+                                <div className="p-3 grid grid-cols-2 gap-3 text-sm">
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className="text-[10px] font-bold text-amber-700/60 uppercase">单日平均 / 中位数振幅</span>
+                                    <span className="text-lg font-black text-amber-600 flex items-baseline gap-1">
+                                      <span>{activeStrategy.backtest.averageAmplitude}<span className="text-[10px]">%</span></span>
+                                      <span className="text-sm font-bold text-amber-600/80">/ {activeStrategy.backtest.medianAmplitude || activeStrategy.backtest.averageAmplitude}<span className="text-[10px]">%</span></span>
+                                    </span>
+                                    <p className="text-[9px] text-amber-700/60 leading-tight">建议网格大小为 {activeStrategy.backtest.suggestedGridInterval}%</p>
+                                  </div>
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className="text-[10px] font-bold text-amber-700/60 uppercase">最大历史回撤</span>
+                                    <span className="text-lg font-black text-red-500 flex items-baseline gap-0.5">
+                                      {activeStrategy.backtest.maxDrawdown}<span className="text-[10px]">%</span>
+                                    </span>
+                                    <p className="text-[9px] text-amber-700/60 leading-tight">近3年最高点至最低点跌幅</p>
+                                  </div>
+                                  <div className="flex flex-col gap-0.5 col-span-2 sm:col-span-1">
+                                    <span className="text-[10px] font-bold text-amber-700/60 uppercase">区间最低 / 最高</span>
+                                    <span className="text-sm font-bold text-amber-700 flex gap-2 pt-0.5">
+                                      <span className="text-[11px]">高: {activeStrategy.backtest.maxPrice}</span>
+                                      <span className="text-[11px]">低: {activeStrategy.backtest.minPrice}</span>
+                                    </span>
+                                    <p className="text-[9px] text-amber-700/60 leading-tight pt-0.5">安全网格区间建议覆盖 <br/>[{activeStrategy.backtest.suggestedBottom}, {activeStrategy.backtest.suggestedTop}]</p>
+                                  </div>
+                                  <div className="flex flex-col justify-end col-span-2 sm:col-span-1 border-t border-amber-200/50 pt-2 sm:border-t-0 sm:pt-0">
+                                    <button
+                                      onClick={() => {
+                                        updateStrategy({
+                                          ...activeStrategy,
+                                          gridInterval: activeStrategy.backtest!.suggestedGridInterval
+                                        });
+                                      }}
+                                      className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-white shadow-sm font-bold text-[11px] rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1"
+                                    >
+                                      一键应用网格建议
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </InputWrapper>
-                          <InputWrapper label="策略名称" sub="起个好记的名字">
+                          <InputWrapper label="证券名称" sub="起个好记的名字">
                             <input 
                               type="text"
                               value={activeStrategy.name}
@@ -457,7 +554,6 @@ export default function App() {
                                   updateStrategy({...activeStrategy, initialPrice: val});
                                 }}
                                 className="input-field"
-                                placeholder="未设置"
                               />
                               {activeStrategy.currentPrice && (
                                 <button 
@@ -474,8 +570,11 @@ export default function App() {
                               type="number"
                               step="0.1"
                               inputMode="decimal"
-                              value={activeStrategy.gridInterval}
-                              onChange={(e) => updateStrategy({...activeStrategy, gridInterval: parseFloat(e.target.value) || 0})}
+                              value={activeStrategy.gridInterval ?? ''}
+                              onChange={(e) => {
+                                const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
+                                updateStrategy({...activeStrategy, gridInterval: val});
+                              }}
                               className="input-field"
                             />
                           </InputWrapper>
@@ -483,8 +582,11 @@ export default function App() {
                             <input 
                               type="number"
                               inputMode="numeric"
-                              value={activeStrategy.initialAmount}
-                              onChange={(e) => updateStrategy({...activeStrategy, initialAmount: parseInt(e.target.value) || 0})}
+                              value={activeStrategy.initialAmount ?? ''}
+                              onChange={(e) => {
+                                const val = e.target.value === '' ? undefined : parseInt(e.target.value, 10);
+                                updateStrategy({...activeStrategy, initialAmount: val});
+                              }}
                               className="input-field"
                             />
                           </InputWrapper>
@@ -518,8 +620,11 @@ export default function App() {
                               type="number"
                               step="0.1"
                               inputMode="decimal"
-                              value={activeStrategy.stepValue}
-                              onChange={(e) => updateStrategy({...activeStrategy, stepValue: parseFloat(e.target.value) || 0})}
+                              value={activeStrategy.stepValue ?? ''}
+                              onChange={(e) => {
+                                const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
+                                updateStrategy({...activeStrategy, stepValue: val});
+                              }}
                               className="input-field"
                             />
                           </InputWrapper>
@@ -528,8 +633,11 @@ export default function App() {
                               type="number"
                               step="0.001"
                               inputMode="decimal"
-                              value={activeStrategy.commissionRate}
-                              onChange={(e) => updateStrategy({...activeStrategy, commissionRate: parseFloat(e.target.value) || 0})}
+                              value={activeStrategy.commissionRate ?? ''}
+                              onChange={(e) => {
+                                const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
+                                updateStrategy({...activeStrategy, commissionRate: val});
+                              }}
                               className="input-field"
                             />
                           </InputWrapper>
@@ -559,18 +667,20 @@ export default function App() {
                         </div>
                       </div>
 
-                      <button 
-                        onClick={() => {
-                          setIsEditing(false);
-                          if (activeStrategy.symbol) {
-                            getLivePrice(activeStrategy.symbol);
-                          }
-                        }}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-100 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
-                      >
-                        <Save className="w-4 h-4" />
-                        生成交易网格
-                      </button>
+                      <div className="sticky bottom-4 z-40 pt-2">
+                        <button 
+                          onClick={() => {
+                            setIsEditing(false);
+                            if (activeStrategy.symbol) {
+                              getLivePrice(activeStrategy.symbol);
+                            }
+                          }}
+                          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-500/30 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                        >
+                          <Save className="w-4 h-4" />
+                          生成交易网格
+                        </button>
+                      </div>
                     </motion.div>
                   ) : (
                     <motion.div 
@@ -600,7 +710,7 @@ export default function App() {
                                 <td className="px-1 py-3.5 font-mono text-slate-500 font-bold text-center">
                                   {row.level === 0 ? '0' : row.level}
                                 </td>
-                                <td className={`px-1 py-3.5 font-bold ${row.level === 0 ? 'text-slate-900' : 'text-red-500'}`}>
+                                <td className={`px-1 py-3.5 font-bold ${row.level === 0 ? 'text-slate-900' : (row.level > 0 ? 'text-red-500' : 'text-green-500')}`}>
                                   <CopyableValue value={row.price.toString()} />
                                 </td>
                                 <td className="px-1 py-3.5 font-medium text-slate-700">
@@ -654,7 +764,7 @@ export default function App() {
                                         }`}
                                         title={ (activeStrategy.triggeredLevels || []).includes(row.level) ? "取消触发" : "标记已触发" }
                                       >
-                                        <TrendingDown className="w-3 h-3" />
+                                        {row.level > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
                                       </button>
                                     </div>
                                   )}
@@ -786,6 +896,10 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
           <Plus className="w-4 h-4" />
           立即创建方案
         </button>
+        <p className="mt-4 text-slate-400 text-xs text-center flex items-center justify-center gap-1.5">
+          <Info className="w-3.5 h-3.5" />
+          数据存在本地浏览器，请勿清空浏览器缓存
+        </p>
       </motion.div>
     </div>
   );
