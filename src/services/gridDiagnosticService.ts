@@ -8,6 +8,12 @@ export interface RawData {
 
 export interface DiagnosisReport {
   score: number;
+  detailedScores: {
+    volatility: number;
+    trend: number;
+    oscillation: number;
+    priceDistribution: number;
+  };
   rating: string;
   suggestion: string;
   details: {
@@ -147,30 +153,40 @@ export const analyzeGridSuitability = (data: RawData[]): DiagnosisReport => {
   const bollingerRatio = (inBandCount / totalBands) * 100;
 
   // 3.3 评分
-  let score = 0;
+  let detailedScores = {
+    volatility: 0,
+    trend: 0,
+    oscillation: 0,
+    priceDistribution: 0
+  };
+
   const advantages = [];
   const risks = [];
   
   // A. 波动率 (3分)
-  if (annualizedVolatility >= 20 && annualizedVolatility <= 40) { score += 3; advantages.push('波动率处于网格交易的最优区间'); }
-  else if ((annualizedVolatility >= 15 && annualizedVolatility < 20) || (annualizedVolatility > 40 && annualizedVolatility <= 50)) { score += 2; risks.push('波动率稍显过低或过高，可能影响网格效率'); }
-  else { score += 1; risks.push('波动率风险较高'); }
+  if (annualizedVolatility >= 20 && annualizedVolatility <= 40) { detailedScores.volatility = 3; advantages.push('波动率处于网格交易的最优区间'); }
+  else if ((annualizedVolatility >= 15 && annualizedVolatility < 20) || (annualizedVolatility > 40 && annualizedVolatility <= 50)) { detailedScores.volatility = 2; risks.push('波动率稍显过低或过高，可能影响网格效率'); }
+  else if (annualizedVolatility > 50) { detailedScores.volatility = 1; risks.push('波动率风险较高'); }
+  else { detailedScores.volatility = 0; risks.push('波动率过低，可能影响网格效率'); }
 
   // B. 趋势 (3分)
-  if (Math.abs(cumulativeReturn) <= 10) { score += 1; advantages.push('震荡市趋势特征明显'); }
-  if (Math.max(maxUp, maxDown) <= 3) { score += 2; advantages.push('中短期无明显趋势，震荡频繁'); }
+  if (Math.abs(cumulativeReturn) <= 10) { detailedScores.trend += 1; advantages.push('震荡市趋势特征明显'); }
+  
+  if (Math.max(maxUp, maxDown) <= 3) { detailedScores.trend += 2; advantages.push('中短期无明显趋势，震荡频繁'); }
+  else if (Math.max(maxUp, maxDown) <= 5) { detailedScores.trend += 1; risks.push('存在一定的单边趋势可能'); }
   else { risks.push('存在潜在单边趋势，需警惕网格被套或踏空'); }
 
   // C. 震荡 (2分)
-  if (trendChangeFreq >= 50) { score += 2; advantages.push('价格震荡频繁，提供了充足的交易机会'); }
-  else { risks.push('震荡不够频繁，可能导致网格交易冷清'); }
+  if (trendChangeFreq >= 50) { detailedScores.oscillation = 2; advantages.push('价格震荡频繁，提供了充足的交易机会'); }
+  else if (trendChangeFreq >= 40) { detailedScores.oscillation = 1; }
+  else { detailedScores.oscillation = 0; risks.push('震荡不够频繁，可能导致网格交易冷清'); }
 
   // D. 价格分布 (2分)
-  if (bollingerRatio >= 90) { score += 2; advantages.push('价格主要运行在布林带通道内'); }
-  else { risks.push('价格常出现布林带通道突破，风险较高'); }
+  if (bollingerRatio >= 90) { detailedScores.priceDistribution = 2; advantages.push('价格主要运行在布林带通道内'); }
+  else if (bollingerRatio >= 80) { detailedScores.priceDistribution = 1; }
+  else { detailedScores.priceDistribution = 0; risks.push('价格常出现布林带通道突破，风险较高'); }
 
-  // E. 日内波动 (加分1分)
-  if (intradayVolatility >= 0.5 && intradayVolatility <= 2.0) { score += 1; advantages.push('日内波动提供了一定的操作空间'); }
+  let score = detailedScores.volatility + detailedScores.trend + detailedScores.oscillation + detailedScores.priceDistribution;
 
   let rating = '不适合';
   let suggestion = '不建议使用网格策略';
@@ -218,6 +234,7 @@ export const analyzeGridSuitability = (data: RawData[]): DiagnosisReport => {
 
   return {
     score,
+    detailedScores,
     rating,
     suggestion,
     details: {
@@ -253,9 +270,9 @@ export const analyzeGridSuitability = (data: RawData[]): DiagnosisReport => {
           "2. 年化收益率 = 累计收益率 × (252 / 交易日数)"
         ],
         standards: [
-          `累计收益率在±10%内：震荡市特征${Math.abs(cumulativeReturn) <= 10 ? ' ✓' : ''}`,
-          `累计收益率>20%：可能处于上涨趋势${cumulativeReturn > 20 ? ' ✓' : ''}`,
-          `累计收益率<-20%：可能处于下跌趋势${cumulativeReturn < -20 ? ' ✓' : ''}`
+          `累计收益率在±10%内：震荡市特征${Math.abs(cumulativeReturn) <= 10 ? ' (+1分) ✓' : ''}`,
+          `最大连续涨跌≤3天：典型的震荡市${Math.max(maxUp, maxDown) <= 3 ? ' (+2分) ✓' : ''}`,
+          `最大连续涨跌≤5天：可能有趋势${Math.max(maxUp, maxDown) > 3 && Math.max(maxUp, maxDown) <= 5 ? ' (+1分) ✓' : ''}`
         ],
         significance: "累计收益率反映这段时间的总收益，年化收益率便于不同期限的收益比较。震荡市（收益率在±10%）最适合网格。",
         evaluation: `当前累计收益率为 ${cumulativeReturn.toFixed(2)}%。${Math.abs(cumulativeReturn) > 10 ? '高收益率意味着单边趋势，易踏空或破网深套。' : '收益率在合适区间内，属于震荡市特征。'}`
@@ -263,14 +280,12 @@ export const analyzeGridSuitability = (data: RawData[]): DiagnosisReport => {
       波动率: {
         definition: [
           "计算目标：衡量证券的风险水平和波动幅度",
-          "1. 年化波动率 = 日收益率标准差 × √252 × 100%",
-          "2. 平均日内波动 = 平均( |收盘价-开盘价| / 开盘价 × 100% )"
+          "1. 年化波动率 = 日收益率标准差 × √252 × 100%"
         ],
         standards: [
-          `年化波动率20%-40%：最适合网格${annualizedVolatility >= 20 && annualizedVolatility <= 40 ? ' ✓' : ''}`,
-          `年化波动率<20%：波动太小，网格空间有限${annualizedVolatility < 20 ? ' ✓' : ''}`,
-          `年化波动率>40%：波动太大，风险较高${annualizedVolatility > 40 ? ' ✓' : ''}`,
-          `平均日内波动1%-2%：有操作空间${intradayVolatility >= 1 && intradayVolatility <= 2 ? ' ✓' : ''}`
+          `年化波动率20%-40%：最适合网格${annualizedVolatility >= 20 && annualizedVolatility <= 40 ? ' (+3分) ✓' : ''}`,
+          `年化波动率15%-20%或40%-50%：波动偏小/偏大${(annualizedVolatility >= 15 && annualizedVolatility < 20) || (annualizedVolatility > 40 && annualizedVolatility <= 50) ? ' (+2分) ✓' : ''}`,
+          `年化波动率>50%：波动太大，风险较高${annualizedVolatility > 50 ? ' (+1分) ✓' : ''}`
         ],
         significance: "波动是网格盈利的来源，适度的波动才能提供交易机会，波动太小赚不到钱，波动太大风险高。",
         evaluation: `当前年化波动率为 ${annualizedVolatility.toFixed(2)}%。${annualizedVolatility >= 20 && annualizedVolatility <= 40 ? '波动适中，适合网格交易。' : (annualizedVolatility < 20 ? '波动率不足难以触发网格套利。' : '波动率过高则暴涨暴跌风险过高。')}`
@@ -282,9 +297,8 @@ export const analyzeGridSuitability = (data: RawData[]): DiagnosisReport => {
           "2. 最大连续上涨天数 与 最大连续下跌天数"
         ],
         standards: [
-          `涨跌交替频率>50%：震荡特征明显${trendChangeFreq > 50 ? ' ✓' : ''}`,
-          `最大连续涨跌≤3天：典型的震荡市${Math.max(maxUp, maxDown) <= 3 ? ' ✓' : ''}`,
-          `最大连续涨跌≥5天：可能有趋势${Math.max(maxUp, maxDown) >= 5 ? ' ✓' : ''}`
+          `涨跌交替频率≥50%：震荡特征明显${trendChangeFreq >= 50 ? ' (+2分) ✓' : ''}`,
+          `涨跌交替频率≥40%：有一定震荡${trendChangeFreq >= 40 && trendChangeFreq < 50 ? ' (+1分) ✓' : ''}`
         ],
         significance: "网格交易需要价格来回波动，涨跌交替频繁才能高抛低吸，连续单边涨跌会耗尽资金或踏空行情。",
         evaluation: `当前涨跌交替频率为 ${trendChangeFreq.toFixed(2)}%。交替频率高可充分发挥网格低买高卖优势，长连跌易致资金站岗。`
@@ -297,8 +311,8 @@ export const analyzeGridSuitability = (data: RawData[]): DiagnosisReport => {
           "3. 布林带内比例 = 在上下轨内天数 / 总天数 × 100%"
         ],
         standards: [
-          `布林带内比例>90%：价格在通道内运行${bollingerRatio > 90 ? ' ✓' : ''}`,
-          `布林带内比例<80%：价格常突破通道${bollingerRatio < 80 ? ' ✓' : ''}`
+          `布林带内比例≥90%：价格在通道内运行${bollingerRatio >= 90 ? ' (+2分) ✓' : ''}`,
+          `布林带内比例≥80%：价格主要在通道内${bollingerRatio >= 80 && bollingerRatio < 90 ? ' (+1分) ✓' : ''}`
         ],
         significance: "价格在通道内运行是震荡市的特征，经常突破通道说明有趋势，网格在价格通道内表现最佳。",
         evaluation: `当前有 ${bollingerRatio.toFixed(2)}% 的时间运行于布林通道内，该比例越高说明均值回归特性越强。`

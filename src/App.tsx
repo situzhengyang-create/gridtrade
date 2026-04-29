@@ -37,7 +37,7 @@ import { GridDiagnosisReport } from './components/GridDiagnosisReport';
 
 export default function App() {
   const [strategies, setStrategies] = useState<GridStrategy[]>([]);
-  const [diagnosisReport, setDiagnosisReport] = useState<{report: DiagnosisReport, symbol: string} | null>(null);
+  const [diagnosisReports, setDiagnosisReports] = useState<{reports: DiagnosisReport[], symbol: string} | null>(null);
   const strategiesRef = React.useRef(strategies);
   useEffect(() => {
     strategiesRef.current = strategies;
@@ -410,11 +410,11 @@ export default function App() {
 
       {/* 主界面 */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {diagnosisReport && (
+        {diagnosisReports && (
           <GridDiagnosisReport 
-            report={diagnosisReport.report} 
-            symbol={diagnosisReport.symbol} 
-            onClose={() => setDiagnosisReport(null)} 
+            reports={diagnosisReports.reports} 
+            symbol={diagnosisReports.symbol} 
+            onClose={() => setDiagnosisReports(null)} 
             onApplySuggestion={(min, max, step) => {
               updateStrategy({
                 ...activeStrategy,
@@ -518,26 +518,30 @@ export default function App() {
                                       setIsDiagnosing(true);
                                       try {
                                         const today = new Date().toISOString().split('T')[0];
-                                        const cacheKey = `diagnosis_cache_${activeStrategy.symbol}_${today}_v4`;
+                                        const cacheKey = `diagnosis_cache_${activeStrategy.symbol}_${today}_v9_multitime`;
                                         const cachedData = localStorage.getItem(cacheKey);
                                         
                                         if (cachedData) {
                                           try {
                                             const parsed = JSON.parse(cachedData);
-                                            if (parsed.metricsInfo && parsed.suggestion) {
-                                              setDiagnosisReport({ report: parsed, symbol: activeStrategy.symbol });
+                                            if (parsed.reports && parsed.suggestion) {
+                                              setDiagnosisReports({ reports: parsed.reports, symbol: activeStrategy.symbol });
                                               return;
                                             }
                                           } catch(e) {}
                                         }
 
                                         const data = await fetchDiagnosticData(activeStrategy.symbol);
-                                        if (data) {
-                                          const report = analyzeGridSuitability(data);
-                                          setDiagnosisReport({ report, symbol: activeStrategy.symbol });
-                                          localStorage.setItem(cacheKey, JSON.stringify(report));
+                                        if (data && data.length >= 60) {
+                                          // 1Y ~250 days, 2Y ~500 days, 3Y ~750 days
+                                          const report1Y = analyzeGridSuitability(data.slice(-250));
+                                          const report2Y = analyzeGridSuitability(data.slice(-500));
+                                          const report3Y = analyzeGridSuitability(data);
+                                          const reports = [report1Y, report2Y, report3Y];
+                                          setDiagnosisReports({ reports, symbol: activeStrategy.symbol });
+                                          localStorage.setItem(cacheKey, JSON.stringify({ reports, symbol: activeStrategy.symbol, suggestion: report3Y.suggestion }));
                                         } else {
-                                          alert("未能获取数据或数据不足");
+                                          alert("未能获取足够数据进行多时间段分析");
                                         }
                                       } catch (error) {
                                         console.error(error);

@@ -115,8 +115,8 @@ export async function fetchDiagnosticData(symbol: string): Promise<RawData[] | n
     const formattedSymbol = symbol.toLowerCase().replace(/sh|sz/, '');
       
     const end = new Date().toISOString().slice(0,10).replace(/-/g, '');
-    const twoYearsAgo = new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000);
-    const start = twoYearsAgo.toISOString().slice(0,10).replace(/-/g, '');
+    const threeYearsAgo = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000);
+    const start = threeYearsAgo.toISOString().slice(0,10).replace(/-/g, '');
     
     let klines: string[] = [];
     
