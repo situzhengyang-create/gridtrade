@@ -13,31 +13,32 @@ export async function fetchBacktestData(symbol: string): Promise<BacktestResult 
     
     let data = null;
     
-    // Try to discover the correct secid if common prefixes fail
+    // Try to discover the correct secid
     let discoveredSecid = null;
     try {
       const searchUrl = `https://searchapi.eastmoney.com/api/suggest/get?input=${formattedSymbol}&type=14`;
       const searchRes: any = await jsonp(searchUrl, 'cb');
       if (searchRes && searchRes.QuotationCodeTable && searchRes.QuotationCodeTable.Data && searchRes.QuotationCodeTable.Data.length > 0) {
-        discoveredSecid = searchRes.QuotationCodeTable.Data[0].SecID;
+        // Look for exact code match first
+        const match = searchRes.QuotationCodeTable.Data.find((d: any) => d.Code === formattedSymbol || d.Code === symbol.toUpperCase());
+        discoveredSecid = match ? match.SecID : searchRes.QuotationCodeTable.Data[0].SecID;
       }
     } catch (e) {
-      console.warn('Search discovery failed', e);
+      console.warn('Discovery failed, using defaults', e);
     }
 
     const preferredPrefix = (formattedSymbol.startsWith('6') || formattedSymbol.startsWith('5')) ? '1' : '0';
-    const prefixes = [preferredPrefix, preferredPrefix === '1' ? '0' : '1', '2', '100', '116', '105', '106', '107'];
+    const prefixes = [preferredPrefix, preferredPrefix === '1' ? '0' : '1', '2', '116', '105', '106', '107', '156', '100'];
     
-    if (discoveredSecid && !prefixes.includes(discoveredSecid.split('.')[0])) {
-      prefixes.unshift(discoveredSecid.split('.')[0]);
+    if (discoveredSecid) {
+       const p = discoveredSecid.split('.')[0];
+       if (!prefixes.includes(p)) prefixes.unshift(p);
     }
 
     for (const prefix of prefixes) {
       try {
-        const secid = discoveredSecid && discoveredSecid.endsWith(formattedSymbol) && discoveredSecid.startsWith(prefix) 
-          ? discoveredSecid 
-          : `${prefix}.${formattedSymbol}`;
-        const baseUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=7eea3edcaed734bea9cbfc24409ed989&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`;
+        const secid = (discoveredSecid && discoveredSecid.endsWith(formattedSymbol)) ? discoveredSecid : `${prefix}.${formattedSymbol}`;
+        const baseUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c41bc19e5917409249e37&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`;
         
         try {
           const response: any = await jsonp(baseUrl, 'cb');
@@ -149,31 +150,32 @@ export async function fetchDiagnosticData(symbol: string): Promise<RawData[] | n
     
     let klines: string[] = [];
     
-    // Try to discover the correct secid if common prefixes fail
+    // Try to discover the correct secid
     let discoveredSecid = null;
     try {
       const searchUrl = `https://searchapi.eastmoney.com/api/suggest/get?input=${formattedSymbol}&type=14`;
       const searchRes: any = await jsonp(searchUrl, 'cb');
       if (searchRes && searchRes.QuotationCodeTable && searchRes.QuotationCodeTable.Data && searchRes.QuotationCodeTable.Data.length > 0) {
-        discoveredSecid = searchRes.QuotationCodeTable.Data[0].SecID;
+        // Look for exact code match first
+        const match = searchRes.QuotationCodeTable.Data.find((d: any) => d.Code === formattedSymbol || d.Code === symbol.toUpperCase());
+        discoveredSecid = match ? match.SecID : searchRes.QuotationCodeTable.Data[0].SecID;
       }
     } catch (e) {
-      console.warn('Search discovery failed', e);
+      console.warn('Discovery failed', e);
     }
 
     const preferredPrefix = (formattedSymbol.startsWith('6') || formattedSymbol.startsWith('5')) ? '1' : '0';
-    const prefixes = [preferredPrefix, preferredPrefix === '1' ? '0' : '1', '2', '100', '116', '105', '106', '107'];
+    const prefixes = [preferredPrefix, preferredPrefix === '1' ? '0' : '1', '2', '116', '105', '106', '107', '156', '100'];
     
-    if (discoveredSecid && !prefixes.includes(discoveredSecid.split('.')[0])) {
-      prefixes.unshift(discoveredSecid.split('.')[0]);
+    if (discoveredSecid) {
+       const p = discoveredSecid.split('.')[0];
+       if (!prefixes.includes(p)) prefixes.unshift(p);
     }
 
     for (const prefix of prefixes) {
       try {
-        const secid = discoveredSecid && discoveredSecid.endsWith(formattedSymbol) && discoveredSecid.startsWith(prefix) 
-          ? discoveredSecid 
-          : `${prefix}.${formattedSymbol}`;
-        const baseUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=7eea3edcaed734bea9cbfc24409ed989&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`;
+        const secid = (discoveredSecid && discoveredSecid.endsWith(formattedSymbol)) ? discoveredSecid : `${prefix}.${formattedSymbol}`;
+        const baseUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c41bc19e5917409249e37&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`;
         
         try {
           const response: any = await jsonp(baseUrl, 'cb');

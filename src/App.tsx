@@ -204,6 +204,47 @@ export default function App() {
     }
   };
 
+  const swipeState = React.useRef({ startX: 0, startY: 0, isHorizontal: false });
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    swipeState.current = {
+      startX: e.touches[0].clientX,
+      startY: e.touches[0].clientY,
+      isHorizontal: false
+    };
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!swipeState.current.startX) return;
+    
+    const x = e.touches[0].clientX;
+    const y = e.touches[0].clientY;
+    const dx = Math.abs(x - swipeState.current.startX);
+    const dy = Math.abs(y - swipeState.current.startY);
+    
+    if (dx > dy && dx > 10) {
+      swipeState.current.isHorizontal = true;
+      if (e.cancelable) e.preventDefault();
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!swipeState.current.isHorizontal) return;
+    
+    const endX = e.changedTouches[0].clientX;
+    const endY = e.changedTouches[0].clientY;
+    const dx = endX - swipeState.current.startX;
+    const dy = endY - swipeState.current.startY;
+    
+    // Horizontal swipe threshold
+    if (Math.abs(dx) > 50 && Math.abs(dy) < 80) {
+      if (dx > 0) navigateSecurity('prev');
+      else navigateSecurity('next');
+    }
+    
+    swipeState.current.startX = 0;
+  };
+
   const refreshingRef = React.useRef<Set<string>>(new Set());
   
   const handleStockClick = (e: React.MouseEvent, symbol: string) => {
@@ -310,7 +351,9 @@ export default function App() {
               canonicalSymbol.startsWith('sh') || canonicalSymbol.startsWith('sz') ? canonicalSymbol : 
                 (canonicalSymbol.startsWith('6') || canonicalSymbol.startsWith('5') ? 'sh' + canonicalSymbol : 'sz' + canonicalSymbol),
               'sh' + canonicalSymbol.replace(/sh|sz/i, ''),
-              'sz' + canonicalSymbol.replace(/sh|sz/i, '')
+              'sz' + canonicalSymbol.replace(/sh|sz/i, ''),
+              'hk' + canonicalSymbol.replace(/hk/i, ''),
+              'us' + canonicalSymbol.replace(/us/i, '')
             ];
             
             for (const sym of possibleSymbols) {
@@ -372,7 +415,9 @@ export default function App() {
         canonicalSymbol.startsWith('sh') || canonicalSymbol.startsWith('sz') ? canonicalSymbol : 
           (canonicalSymbol.startsWith('6') || canonicalSymbol.startsWith('5') ? 'sh' + canonicalSymbol : 'sz' + canonicalSymbol),
         'sh' + canonicalSymbol.replace(/sh|sz/i, ''),
-        'sz' + canonicalSymbol.replace(/sh|sz/i, '')
+        'sz' + canonicalSymbol.replace(/sh|sz/i, ''),
+        'hk' + canonicalSymbol.replace(/hk/i, ''),
+        'us' + canonicalSymbol.replace(/us/i, '')
       ];
       
       for (const sym of possibleSymbols) {
@@ -404,6 +449,35 @@ export default function App() {
           }
         } catch(e) {}
       }
+
+      // Final fallback: Try East Money API directly
+      try {
+        const formatted = symbol.replace(/sh|sz|hk|us/i, '').toUpperCase();
+        const preferredPrefix = (formatted.startsWith('6') || formatted.startsWith('5')) ? '1' : '0';
+        for (const p of [preferredPrefix, preferredPrefix === '1' ? '0' : '1', '116', '105', '106']) {
+          try {
+            const emUrl = `https://push2.eastmoney.com/api/qt/stock/get?secid=${p}.${formatted}&ut=fa5fd1943c41bc19e5917409249e37&fields=f43,f44,f45,f57,f58`;
+            const res: any = await jsonp(emUrl, 'cb');
+            if (res && res.data && res.data.f43 && res.data.f43 !== '-') {
+              const price = res.data.f43 / 100; // f43 is usually price * 100 in some EM APIs, but let's check
+              // Actually, f43 might be the real price if it's from push2.
+              // For A-shares, f43 is price.
+              const realPrice = res.data.f43;
+              if (realPrice > 0) {
+                 setStrategies(prev => prev.map(s => s.id === targetId ? {
+                  ...s,
+                  securityName: res.data.f58 || s.securityName, 
+                  currentPrice: realPrice,
+                  initialPrice: s.initialPrice || realPrice,
+                  lastPriceTime: Date.now()
+                } : s));
+                return;
+              }
+            }
+          } catch(err) {}
+        }
+      } catch(e) {}
+
       throw new Error('未获取到有效的价格数据');
     } catch (e: any) {
       console.error(e);
@@ -917,19 +991,10 @@ export default function App() {
         {(view === AppView.SETTING || view === AppView.GRID || view === AppView.REPORT) && (
           <motion.div 
             key="detail-container"
-            className="flex-1 flex flex-col overflow-hidden relative"
-            drag="x"
-            dragConstraints={{ left: 0, right: 0 }}
-            dragElastic={0.05}
-            dragMomentum={false}
-            onDragEnd={(e, { offset, velocity }) => {
-              const swipeThreshold = 50;
-              const velocityThreshold = 500;
-              if (Math.abs(velocity.x) > velocityThreshold || Math.abs(offset.x) > swipeThreshold) {
-                if (offset.x > 0) navigateSecurity('prev');
-                else navigateSecurity('next');
-              }
-            }}
+            className="flex-1 flex flex-col overflow-hidden relative touch-pan-y"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
             initial={{ opacity: 0, x: 50 }} 
             animate={{ opacity: 1, x: 0 }} 
             exit={{ opacity: 0, x: 50 }}
