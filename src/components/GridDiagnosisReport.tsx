@@ -207,7 +207,7 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       <tr className="bg-blue-50/40">
-                        <td className="py-3 text-xs font-black text-blue-700 text-left">总计 (/10)</td>
+                        <td className="py-3 text-xs font-black text-blue-700 text-left">总计</td>
                         {reports.map((r, idx) => (
                           <td key={idx} className="py-3 px-0.5">
                             <span className="text-lg font-black text-blue-700">{r.score}</span>

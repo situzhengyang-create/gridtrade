@@ -177,19 +177,36 @@ export default function App() {
     })).filter(m => m.percent > 0).sort((a, b) => a.percent - b.percent);
   }, [activeStrategy, analysisMap]);
 
+  const sortedStrategies = useMemo(() => {
+    const getSortVal = (symbol: string) => {
+      const result = analysisMap[symbol.toLowerCase()];
+      if (!result || !result.reports) return 0;
+      return result.reports.reduce((sum, r) => sum + (r.score || 0), 0);
+    };
+    
+    const displaySymbols = [...analyzedSymbols].reverse();
+    if (summarySortMode === 'CONCLUSION') {
+      displaySymbols.sort((a, b) => getSortVal(b) - getSortVal(a));
+    }
+    
+    return displaySymbols.map(sym => 
+      strategies.find(s => s.symbol?.toLowerCase() === sym.toLowerCase())
+    ).filter(Boolean) as GridStrategy[];
+  }, [analyzedSymbols, summarySortMode, analysisMap, strategies]);
+
   const activeIndex = useMemo(() => {
-    if (!activeId || strategies.length === 0) return -1;
-    return strategies.findIndex(s => s.id === activeId);
-  }, [activeId, strategies]);
+    if (!activeId || sortedStrategies.length === 0) return -1;
+    return sortedStrategies.findIndex(s => s.id === activeId);
+  }, [activeId, sortedStrategies]);
 
   const navigateSecurity = (direction: 'prev' | 'next') => {
-    if (strategies.length <= 1) return;
+    if (sortedStrategies.length <= 1) return;
     
     let nextIndex = direction === 'next' ? activeIndex + 1 : activeIndex - 1;
-    if (nextIndex < 0) nextIndex = strategies.length - 1;
-    if (nextIndex >= strategies.length) nextIndex = 0;
+    if (nextIndex < 0) nextIndex = sortedStrategies.length - 1;
+    if (nextIndex >= sortedStrategies.length) nextIndex = 0;
     
-    const nextStrategy = strategies[nextIndex];
+    const nextStrategy = sortedStrategies[nextIndex];
     
     if (nextStrategy) {
       setActiveId(nextStrategy.id);
@@ -680,28 +697,16 @@ export default function App() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {(() => {
-                const getSortVal = (symbol: string) => {
-                  const result = analysisMap[symbol.toLowerCase()];
-                  if (!result || !result.reports) return 0;
-                  return result.reports.reduce((sum, r) => sum + (r.score || 0), 0);
-                };
-                
-                let displaySymbols = [...analyzedSymbols].reverse();
-                if (summarySortMode === 'CONCLUSION') {
-                  displaySymbols.sort((a, b) => getSortVal(b) - getSortVal(a));
-                }
-                
-                return displaySymbols.map(symbol => {
-                  const canonicalSymbol = symbol.toLowerCase();
-                  const result = analysisMap[canonicalSymbol];
+              {sortedStrategies.map(strategy => {
+                const symbol = strategy.symbol!;
+                const canonicalSymbol = symbol.toLowerCase();
+                const result = analysisMap[canonicalSymbol];
                 const isLoading = loadingMap[canonicalSymbol];
-                const strategy = strategies.find(s => s.symbol?.toLowerCase() === canonicalSymbol);
                 const isSelected = selectedSymbols.includes(canonicalSymbol);
                 
                 return (
                   <tr 
-                    key={symbol} 
+                    key={strategy.id} 
                     onClick={() => isDeleteMode && toggleSelection(symbol)}
                     className={`group transition-colors ${
                       isDeleteMode ? 'cursor-pointer' : 'hover:bg-slate-50/30'
@@ -825,8 +830,7 @@ export default function App() {
                     </td>
                   </tr>
                 );
-                });
-              })()}
+              })}
             </tbody>
           </table>
 
