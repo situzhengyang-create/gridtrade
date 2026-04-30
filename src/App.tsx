@@ -407,19 +407,17 @@ export default function App() {
       <div className="flex-1 flex flex-col bg-white overflow-hidden relative">
         <header className="px-6 py-4 flex items-center justify-between bg-white border-b border-slate-100 z-50 shrink-0">
           <div className="flex items-center gap-4">
-            <button 
-              onClick={() => {
-                if (isDeleteMode) {
+            {isDeleteMode && (
+              <button 
+                onClick={() => {
                   setIsDeleteMode(false);
                   setSelectedSymbols([]);
-                } else {
-                  setView(AppView.HOME);
-                }
-              }}
-              className="w-8 h-8 flex items-center justify-center hover:bg-slate-50 rounded-full transition-all text-slate-400"
-            >
-              {isDeleteMode ? <X className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
-            </button>
+                }}
+                className="w-8 h-8 flex items-center justify-center hover:bg-slate-50 rounded-full transition-all text-slate-400"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
             <h2 className="text-sm font-black text-slate-900 uppercase tracking-widest">
               {isDeleteMode ? `已选择 ${selectedSymbols.length} 个标的` : '诊断看板'}
             </h2>
