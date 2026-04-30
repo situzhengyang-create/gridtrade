@@ -35,7 +35,7 @@ import { fetchBacktestData, fetchDiagnosticData } from './services/marketData';
 import { analyzeGridSuitability, DiagnosisReport } from './services/gridDiagnosticService';
 import { getEastMoneyUrl, getEastMoneyAppScheme, getEastMoneyWapUrl } from './lib/stockUtils';
 import { GridDiagnosisReport } from './components/GridDiagnosisReport';
-import { fetchTencentQuote } from './lib/jsonp';
+import { fetchTencentQuote, jsonp } from './lib/jsonp';
 
 enum AppView {
   HOME = 'HOME',
@@ -71,7 +71,16 @@ export default function App() {
   });
   const [loadingMap, setLoadingMap] = useState<Record<string, boolean>>({});
   
-  const [strategies, setStrategies] = useState<GridStrategy[]>([]);
+  const [strategies, setStrategies] = useState<GridStrategy[]>(() => {
+    const saved = localStorage.getItem('grid_trader_strategies');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (e) {}
+    }
+    return [];
+  });
   const [activeId, setActiveId] = useState<string | null>(null);
   const [summarySortMode, setSummarySortMode] = useState<'DEFAULT' | 'CONCLUSION'>('DEFAULT');
   
@@ -121,16 +130,34 @@ export default function App() {
 
   // Initialize from local storage
   useEffect(() => {
-    const saved = localStorage.getItem('grid_trader_strategies');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          setStrategies(parsed);
-        }
-      } catch (e) {
-        console.error('Failed to parse strategies', e);
-      }
+    // Check if any analyzed symbols are missing strategies (repair)
+    const missingSymbols = analyzedSymbols.filter(sym => 
+      !strategies.find(s => s.symbol?.toLowerCase() === sym.toLowerCase())
+    );
+    
+    if (missingSymbols.length > 0) {
+      setStrategies(prev => {
+        const next = [...prev];
+        missingSymbols.forEach(cs => {
+          if (!next.find(s => s.symbol?.toLowerCase() === cs.toLowerCase())) {
+            next.push({
+              id: crypto.randomUUID(),
+              name: cs.toUpperCase(),
+              symbol: cs.toLowerCase(),
+              gridInterval: 3,
+              initialAmount: 3000,
+              stepValue: 0,
+              stepType: 'percent',
+              commissionRate: 0.005,
+              createdAt: Date.now(),
+              notes: '',
+              placedLevels: [],
+              triggeredLevels: []
+            });
+          }
+        });
+        return next;
+      });
     }
   }, []);
 
@@ -308,11 +335,12 @@ export default function App() {
   }, [view, activeStrategy?.symbol, analysisMap, loadingMap]);
 
   const cleanSymbols = (input: string): string[] => {
-    // Regex to match stock codes: 6 digits, or sh/sz followed by 6 digits
-    const regex = /(?:sh|sz)?\d{6}/gi;
+    // Regex to match stock codes: 1-6 digits, or letters/digits (US/HK/A-shares)
+    // Matches: 600000, 00700, AAPL, sh600000, etc.
+    const regex = /(?:sh|sz|hk|us)?(?:\d{1,6}|[a-z]{1,10})/gi;
     const matches = input.match(regex) || [];
-    // Remove duplicates
-    return Array.from(new Set(matches.map(s => s.toLowerCase())));
+    // Filter out very short purely numeric codes that are likely noise, but keep 1-digit for HK
+    return Array.from(new Set(matches.map(s => s.toLowerCase()).filter(s => s.length >= 1)));
   };
 
   const handleStartAnalysis = async (customSymbols?: string[] | any, forceRefresh = false) => {
@@ -330,9 +358,41 @@ export default function App() {
     if (!forceRefresh) {
       setView(AppView.SUMMARY);
     }
-    setAnalyzedSymbols(prev => Array.from(new Set([...prev, ...symbols])));
+    
+    // Move analyzed symbols to the front (end of array before reverse)
+    setAnalyzedSymbols(prev => {
+      const filtered = prev.filter(s => !symbols.some(newSym => newSym.toLowerCase() === s.toLowerCase()));
+      return [...filtered, ...symbols];
+    });
     
     const canonicalSymbols = symbols.map(s => s.toLowerCase());
+    
+    // Create strategies immediately if they don't exist
+    setStrategies(prev => {
+      let next = [...prev];
+      let changed = false;
+      for (const cs of canonicalSymbols) {
+        if (!next.find(s => s.symbol?.toLowerCase() === cs)) {
+          next.push({
+            id: crypto.randomUUID(),
+            name: cs.toUpperCase(),
+            symbol: cs,
+            gridInterval: 3,
+            initialAmount: 3000,
+            stepValue: 0,
+            stepType: 'percent',
+            commissionRate: 0.005,
+            createdAt: Date.now(),
+            notes: '',
+            placedLevels: [],
+            triggeredLevels: []
+          });
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+
     const symbolsToRefresh = forceRefresh ? canonicalSymbols : canonicalSymbols.filter(s => !analysisMap[s]);
     
     // Set all pending symbols to loading right away
@@ -357,68 +417,70 @@ export default function App() {
       
       try {
         const data = await fetchDiagnosticData(canonicalSymbol);
+        
+        // Always try to fetch descriptive name regardless of data length
+        let name = canonicalSymbol.toUpperCase();
+        try {
+          const possibleSymbols = [
+            canonicalSymbol.startsWith('sh') || canonicalSymbol.startsWith('sz') ? canonicalSymbol : 
+              (canonicalSymbol.startsWith('6') || canonicalSymbol.startsWith('5') ? 'sh' + canonicalSymbol : 'sz' + canonicalSymbol),
+            'sh' + canonicalSymbol.replace(/sh|sz/i, ''),
+            'sz' + canonicalSymbol.replace(/sh|sz/i, ''),
+            'hk' + canonicalSymbol.replace(/hk/i, ''),
+            'us' + canonicalSymbol.replace(/us/i, '')
+          ];
+          
+          for (const sym of possibleSymbols) {
+            try {
+              const text = await fetchTencentQuote(`s_${sym}`);
+              if (text && text.split('~').length > 1) {
+                const fetchedName = text.split('~')[1];
+                if (fetchedName && fetchedName !== 'N/A') {
+                  name = fetchedName;
+                  break;
+                }
+              }
+            } catch(e) {}
+          };
+        } catch(e) {}
+
+        // Update strategy name if we found a better one
+        setStrategies(prev => prev.map(s => s.symbol?.toLowerCase() === canonicalSymbol ? { ...s, name } : s));
+
         if (data && data.length >= 60) {
           const report1Y = analyzeGridSuitability(data.slice(-250));
           const report2Y = analyzeGridSuitability(data.slice(-500));
           const report3Y = analyzeGridSuitability(data);
           const reports = [report1Y, report2Y, report3Y];
           
-          // Get name
-          let name = canonicalSymbol;
-          try {
-            const possibleSymbols = [
-              canonicalSymbol.startsWith('sh') || canonicalSymbol.startsWith('sz') ? canonicalSymbol : 
-                (canonicalSymbol.startsWith('6') || canonicalSymbol.startsWith('5') ? 'sh' + canonicalSymbol : 'sz' + canonicalSymbol),
-              'sh' + canonicalSymbol.replace(/sh|sz/i, ''),
-              'sz' + canonicalSymbol.replace(/sh|sz/i, ''),
-              'hk' + canonicalSymbol.replace(/hk/i, ''),
-              'us' + canonicalSymbol.replace(/us/i, '')
-            ];
-            
-            for (const sym of possibleSymbols) {
-              try {
-                const text = await fetchTencentQuote(`s_${sym}`);
-                if (text && text.split('~').length > 1) {
-                  const fetchedName = text.split('~')[1];
-                  if (fetchedName && fetchedName !== 'N/A') {
-                    name = fetchedName;
-                    break;
-                  }
-                }
-              } catch(e) {}
-            };
-          } catch(e) {}
-
           setAnalysisMap(prev => ({
             ...prev,
             [canonicalSymbol]: { reports, name, statusText: report3Y.rating }
           }));
 
-          // Automatically create strategy if not exists
-          setStrategies(prev => {
-            const exists = prev.find(s => s.symbol?.toLowerCase() === canonicalSymbol);
-            if (!exists) {
-              const newStrategy: GridStrategy = {
-                id: crypto.randomUUID(),
-                name: name,
-                symbol: canonicalSymbol,
-                gridInterval: report3Y.backtest.recommendedGridSize || 3,
-                initialAmount: 3000,
-                stepValue: 0,
-                stepType: 'percent',
-                commissionRate: 0.005,
-                createdAt: Date.now(),
-                notes: '',
-                placedLevels: [],
-                triggeredLevels: []
+          // Update strategy with recommended grid size if it was a fresh creation
+          setStrategies(prev => prev.map(s => {
+            if (s.symbol?.toLowerCase() === canonicalSymbol) {
+              return { 
+                ...s, 
+                gridInterval: s.gridInterval === 3 ? (report3Y.backtest.recommendedGridSize || 3) : s.gridInterval 
               };
-              return [...prev, newStrategy];
             }
-            return prev;
-          });
+            return s;
+          }));
+        } else if (data) {
+           // Not enough data but we have some results
+           setAnalysisMap(prev => ({
+            ...prev,
+            [canonicalSymbol]: { reports: [], name, statusText: '数据不足' }
+          }));
         }
       } catch (e) {
         console.error(`Analysis failed for ${canonicalSymbol}`, e);
+        setAnalysisMap(prev => ({
+          ...prev,
+          [canonicalSymbol]: { reports: [], name: canonicalSymbol.toUpperCase(), statusText: '获取失败' }
+        }));
       } finally {
         setLoadingMap(prev => ({ ...prev, [canonicalSymbol]: false }));
       }
@@ -662,34 +724,34 @@ export default function App() {
           <table className="w-full text-left border-collapse table-fixed">
             <thead>
               <tr className="bg-slate-50/50 border-b border-slate-100">
-                <th className="px-6 py-3 text-xs font-black text-slate-400 uppercase tracking-widest w-[40%]">
-                  <div className="flex items-center gap-4">
+                <th className="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[40%]">
+                  <div className="flex items-center gap-2">
                     {isDeleteMode && (
                       <div 
                         onClick={() => {
                           if (selectedSymbols.length === analyzedSymbols.length) setSelectedSymbols([]);
                           else setSelectedSymbols(analyzedSymbols.map(s => s.toLowerCase()));
                         }}
-                        className={`w-4 h-4 rounded border flex items-center justify-center transition-all cursor-pointer ${
+                        className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-all cursor-pointer shrink-0 ${
                           selectedSymbols.length === analyzedSymbols.length ? 'bg-blue-600 border-blue-600' : 'bg-white border-slate-300'
                         }`}
                       >
-                        {selectedSymbols.length === analyzedSymbols.length && <Check className="w-2.5 h-2.5 text-white stroke-[4]" />}
+                        {selectedSymbols.length === analyzedSymbols.length && <Check className="w-2 h-2 text-white stroke-[4]" />}
                       </div>
                     )}
                     <span>证券</span>
                   </div>
                 </th>
-                <th className="px-2 py-3 text-xs font-black text-slate-400 uppercase tracking-widest text-center">3Y</th>
-                <th className="px-2 py-3 text-xs font-black text-slate-400 uppercase tracking-widest text-center">2Y</th>
-                <th className="px-2 py-3 text-xs font-black text-slate-400 uppercase tracking-widest text-center">1Y</th>
+                <th className="px-0.5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[10%]">3Y</th>
+                <th className="px-0.5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[10%]">2Y</th>
+                <th className="px-0.5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[10%]">1Y</th>
                 <th 
-                  className="px-6 py-3 text-xs font-black text-slate-400 uppercase tracking-widest text-right w-[100px] cursor-pointer hover:text-slate-600 select-none group"
+                  className="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[30%] cursor-pointer hover:text-slate-600 select-none group"
                   onClick={() => setSummarySortMode(prev => prev === 'DEFAULT' ? 'CONCLUSION' : 'DEFAULT')}
                 >
-                  <div className="flex items-center justify-end gap-1">
+                  <div className="flex items-center justify-center gap-1">
                     结论
-                    <svg className={`w-3 h-3 transition-transform ${summarySortMode === 'CONCLUSION' ? 'text-blue-500' : 'text-slate-300 group-hover:text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className={`w-2.5 h-2.5 transition-transform ${summarySortMode === 'CONCLUSION' ? 'text-blue-500' : 'text-slate-300 group-hover:text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
                     </svg>
                   </div>
@@ -712,64 +774,64 @@ export default function App() {
                       isDeleteMode ? 'cursor-pointer' : 'hover:bg-slate-50/30'
                     } ${isSelected ? 'bg-rose-50/30' : ''}`}
                   >
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-4">
+                    <td className="px-4 py-4 overflow-hidden">
+                      <div className="flex items-start gap-1.5 min-w-0">
                         {isDeleteMode && (
-                           <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all shrink-0 ${
+                           <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-all shrink-0 mt-0.5 ${
                              isSelected ? 'bg-rose-500 border-rose-500' : 'bg-white border-slate-300'
                            }`}>
-                             {isSelected && <Check className="w-2.5 h-2.5 text-white stroke-[4]" />}
+                             {isSelected && <Check className="w-2 h-2 text-white stroke-[4]" />}
                            </div>
                         )}
-                        <div className="flex flex-col gap-1 min-w-0">
-                           <div className="text-sm font-black text-slate-900 leading-tight truncate">
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                           <div className="text-[13px] font-black text-slate-900 leading-tight">
                               {isLoading ? (
-                                <div className="w-24 h-4 bg-slate-100 animate-pulse rounded" />
+                                <div className="w-16 h-3 bg-slate-100 animate-pulse rounded" />
                               ) : (
                                 <a 
                                   href={getEastMoneyUrl(symbol)}
                                   onClick={(e) => handleStockClick(e, symbol)}
-                                  className="hover:text-blue-600 transition-colors"
+                                  className="hover:text-blue-600 transition-colors break-words"
                                 >
                                   {result?.name || symbol}
                                 </a>
                               )}
                            </div>
+                           {!isLoading && result?.name && (
+                             <a 
+                               href={getEastMoneyUrl(symbol)}
+                               target="_blank"
+                               rel="noopener noreferrer"
+                               onClick={(e) => handleStockClick(e, symbol)}
+                               className="text-[9px] font-bold text-slate-400 font-mono tabular-nums leading-none hover:text-blue-500 transition-all opacity-80"
+                             >
+                               {symbol.replace(/sh|sz|hk|us/i, '')}
+                             </a>
+                           )}
                            
-                           <div className="flex items-center gap-3">
-                              <a 
-                                href={getEastMoneyUrl(symbol)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => handleStockClick(e, symbol)}
-                                className="text-xs font-bold text-slate-400 uppercase tracking-widest tabular-nums leading-none hover:text-blue-500 hover:underline transition-all"
-                              >
-                                {symbol}
-                              </a>
-                              {!isLoading && strategy && !isDeleteMode && (
-                                 <div className="flex items-center gap-1">
-                                   {[
-                                     { icon: Settings2, v: AppView.SETTING, title: '设置' },
-                                     { icon: Grid3X3, v: AppView.GRID, title: '网格' },
-                                     { icon: FileText, v: AppView.REPORT, title: '报告' }
-                                   ].map((btn, i) => (
-                                     <button 
-                                       key={i}
-                                       onClick={(e) => {
-                                         e.stopPropagation();
-                                         setActiveId(strategy.id);
-                                         setView(btn.v);
-                                         if (btn.v === AppView.GRID && !strategy.currentPrice) getLivePrice(strategy.symbol!, strategy.id);
-                                       }}
-                                       className="p-1.5 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded transition-all"
-                                       title={btn.title}
-                                     >
-                                       <btn.icon className="w-3.5 h-3.5" />
-                                     </button>
-                                   ))}
-                                 </div>
-                              )}
-                           </div>
+                           {!isLoading && strategy && !isDeleteMode && (
+                              <div className="flex items-center gap-2 mt-1.5">
+                                {[
+                                  { icon: FileText, v: AppView.REPORT, title: '报告' },
+                                  { icon: Settings2, v: AppView.SETTING, title: '设置' },
+                                  { icon: Grid3X3, v: AppView.GRID, title: '网格' },
+                                ].map((btn, i) => (
+                                  <button 
+                                    key={i}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveId(strategy.id);
+                                      setView(btn.v);
+                                      if (btn.v === AppView.GRID && !strategy.currentPrice) getLivePrice(strategy.symbol!, strategy.id);
+                                    }}
+                                    className="p-0.5 text-slate-300 hover:text-blue-500 transition-all"
+                                    title={btn.title}
+                                  >
+                                    <btn.icon className="w-3.5 h-3.5" />
+                                  </button>
+                                ))}
+                              </div>
+                           )}
                         </div>
                       </div>
                     </td>
@@ -777,53 +839,72 @@ export default function App() {
                     {isLoading || result ? [2, 1, 0].map(idx => {
                       const r = result?.reports?.[idx];
                       return (
-                        <td key={idx} className="px-2 py-4 text-center">
+                        <td 
+                          key={idx} 
+                          className={`px-0.5 py-4 text-center ${!isDeleteMode ? 'cursor-pointer' : ''}`}
+                          onClick={(e) => {
+                            if (!isDeleteMode) {
+                              e.stopPropagation();
+                              setActiveId(strategy.id);
+                              setView(AppView.REPORT);
+                            }
+                          }}
+                        >
                           {isLoading ? (
-                            <div className="w-4 h-4 border border-slate-200 border-t-blue-500 rounded-full animate-spin mx-auto" />
+                            <div className="w-4 h-4 border-2 border-slate-100 border-t-blue-500 rounded-full animate-spin mx-auto" />
                           ) : r ? (
-                            <span className={`text-2xl font-black tabular-nums tracking-tighter transition-colors ${
-                              r.score >= 7 ? 'text-emerald-500' : 
+                            <span className={`text-[18px] font-black tabular-nums tracking-tighter transition-colors ${
+                              r.score >= 7 ? 'text-blue-600' : 
                               r.score >= 5 ? 'text-blue-500' : 
                               'text-slate-300'
                             }`}>
-                              {r.score}
+                               {r.score}
                             </span>
                           ) : (
-                            <span className="text-slate-200 text-xs">-</span>
+                            <span className="text-slate-200 text-[10px]">-</span>
                           )}
                         </td>
                       );
                     }) : (
-                      <td colSpan={3} className="px-2 py-1 text-center">
+                      <td colSpan={3} className="px-1 py-4 text-center">
                         {!isDeleteMode && (
                            <button 
                              onClick={(e) => {
                                e.stopPropagation();
                                handleStartAnalysis([symbol]);
                              }}
-                             className="mx-auto p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded transition-all flex items-center gap-1.5 justify-center"
+                             className="mx-auto p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded transition-all flex items-center gap-1 justify-center"
                              title="重试诊断"
                            >
-                             <RefreshCw className="w-3.5 h-3.5" />
-                             <span className="text-[13px] font-bold leading-none tracking-widest whitespace-nowrap">失败重试</span>
+                             <RefreshCw className="w-3 h-3" />
+                             <span className="text-[11px] font-bold leading-none tracking-tight whitespace-nowrap">重试</span>
                            </button>
                         )}
                       </td>
                     )}
 
-                    <td className="px-6 py-4 text-right">
+                    <td 
+                      className={`px-4 py-4 text-center ${!isDeleteMode ? 'cursor-pointer' : ''}`}
+                      onClick={(e) => {
+                        if (!isDeleteMode) {
+                          e.stopPropagation();
+                          setActiveId(strategy.id);
+                          setView(AppView.REPORT);
+                        }
+                      }}
+                    >
                        {isLoading ? (
-                         <div className="w-12 h-3 bg-slate-50 animate-pulse rounded ml-auto" />
+                         <div className="w-10 h-2.5 bg-slate-50 animate-pulse rounded mx-auto" />
                        ) : result ? (
-                         <span className={`text-xs font-black whitespace-nowrap transition-colors ${
-                            result.statusText.includes('非常适合') ? 'text-emerald-500' :
-                            result.statusText.includes('适合') ? 'text-blue-500' :
-                            result.statusText.includes('不适合') ? 'text-rose-500' : 'text-amber-500'
+                         <span className={`text-[10px] font-black whitespace-nowrap transition-colors ${
+                            (result.reports?.[2]?.score || 0) >= 7 ? 'text-blue-600' :
+                            (result.reports?.[2]?.score || 0) >= 5 ? 'text-blue-500' :
+                            'text-slate-400'
                          }`}>
-                           {result.statusText.replace('结论：', '').replace('比较适合网格交易', '适宜').replace('非常适合网格交易', '极佳').replace('适合网格交易', '适宜').replace('勉强适合网格交易', '普通').replace('不适合网格交易', '回避')}
+                           {result.statusText.replace('历史数据不足', '数据不足').replace('结论：', '').replace('适合网格交易', '适合').replace('勉强适合网格交易', '勉强适合').replace('不适合网格交易', '不适合')}
                          </span>
                        ) : (
-                         <span className="text-xs font-black text-slate-300">
+                         <span className="text-[10px] font-black text-slate-300">
                            获取失败
                          </span>
                        )}
@@ -959,9 +1040,9 @@ export default function App() {
       
       <div className="flex bg-slate-100 rounded-lg p-0.5 gap-0.5 shrink-0 ml-2">
         {[
+          { v: AppView.REPORT, label: '报告', icon: FileText, title: '诊断报告' },
           { v: AppView.SETTING, label: '设置', icon: Settings2, title: '策略设置' },
           { v: AppView.GRID, label: '网格', icon: TableIcon, title: '预览网格' },
-          { v: AppView.REPORT, label: '报告', icon: FileText, title: '诊断报告' },
         ].map(item => (
           <button 
             key={item.v}
@@ -1293,6 +1374,7 @@ export default function App() {
                         reports={analysisMap[activeStrategy.symbol!.toLowerCase()]?.reports || []}
                         symbol={activeStrategy.symbol!}
                         name={activeStrategy.name!}
+                        isLoading={loadingMap[activeStrategy.symbol!.toLowerCase()]}
                         onApplySuggestion={(min, max, step) => {
                           updateStrategy({ ...activeStrategy, gridInterval: step });
                           setView(AppView.GRID);

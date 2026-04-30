@@ -6,6 +6,7 @@ interface Props {
   reports: DiagnosisReport[];
   symbol: string;
   name: string;
+  isLoading?: boolean;
   onApplySuggestion?: (min: number, max: number, step: number) => void;
 }
 
@@ -120,7 +121,7 @@ const MetricCard = ({ item }: { item: any }) => {
   );
 };
 
-export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, onApplySuggestion }) => {
+export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, isLoading, onApplySuggestion }) => {
   const [activeTimeframe, setActiveTimeframe] = useState(-1); // -1: 对比, 0: 1Y, 1: 2Y, 2: 3Y
   
   const handleStockClick = (e: React.MouseEvent, sym: string) => {
@@ -185,7 +186,7 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
       </div>
 
       <div className="p-4 sm:p-5 pb-12 space-y-6 flex-1">
-          {reports.length === 0 ? (
+          {isLoading ? (
             <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-slate-400">
               <svg className="w-12 h-12 mb-4 text-slate-200 animate-spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" strokeDasharray="32" strokeLinecap="round" className="opacity-75"></circle>
@@ -193,29 +194,40 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
               <p className="text-sm font-medium">正在生成诊断报告...</p>
               <p className="text-xs mt-2 opacity-60">通常需要几秒钟，请稍候</p>
             </div>
+          ) : reports.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-slate-400">
+              <div className="w-12 h-12 mb-4 flex items-center justify-center rounded-full bg-slate-50 border border-slate-100">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-300"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+              </div>
+              <p className="text-sm font-medium">暂无诊断报告</p>
+              <p className="text-xs mt-2 opacity-60">该标的历史数据不足，无法生成有效诊断</p>
+            </div>
           ) : activeTimeframe === -1 ? (
             <div className="space-y-6">
-              <div className="overflow-x-hidden">
-                <table className="w-full text-center table-fixed">
+              <div className="overflow-x-auto -mx-1 px-1">
+                <table className="w-full text-center table-fixed border-separate border-spacing-0">
                     <thead>
-                      <tr className="text-xs text-slate-400 font-bold uppercase tracking-tight">
-                        <th className="pb-2 text-left w-[28%]">评估维度</th>
+                      <tr className="bg-slate-50/80 border-y border-slate-100">
+                        <th className="py-2.5 px-3 text-[11px] font-bold text-slate-400 text-left uppercase tracking-wider rounded-l-lg border-y border-l border-slate-100/50">评估维度</th>
                         {timeframes.map((tf, idx) => (
-                          <th key={idx} className="pb-2 px-0.5">{tf.label.replace('最近', '')}</th>
+                          <th key={idx} className={`py-2.5 px-0.5 text-xs font-black text-slate-400 tabular-nums uppercase tracking-widest border-y border-slate-100/50 ${idx === timeframes.length - 1 ? 'rounded-r-lg border-r' : ''}`}>
+                            {tf.label.replace('最近', '')}
+                          </th>
                         ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      <tr className="bg-blue-50/40">
-                        <td className="py-3 text-xs font-black text-blue-700 text-left">总计</td>
+                      <tr><td className="h-2" colSpan={timeframes.length + 1}></td></tr>
+                      <tr className="bg-blue-50/50">
+                        <td className="py-3 px-3 text-xs font-black text-blue-700 text-left rounded-l-lg">总计</td>
                         {reports.map((r, idx) => (
-                          <td key={idx} className="py-3 px-0.5">
-                            <span className="text-lg font-black text-blue-700">{r.score}</span>
+                          <td key={idx} className={`py-3 px-0.5 ${idx === reports.length - 1 ? 'rounded-r-lg' : ''}`}>
+                            <span className="text-xl font-black text-blue-700 leading-none">{r.score}</span>
                           </td>
                         ))}
                       </tr>
                       <tr>
-                        <td className="py-3 text-xs font-bold text-slate-600 text-left">适合程度</td>
+                        <td className="py-3 px-3 text-xs font-bold text-slate-600 text-left">适合程度</td>
                         {reports.map((r, idx) => (
                           <td key={idx} className="py-3 px-0.5">
                             <span className={`text-xs font-black ${getRatingColor(r.rating).split(' ')[0]}`}>
@@ -225,62 +237,68 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                         ))}
                       </tr>
                       <tr>
-                        <td className="py-3 text-[11px] font-bold text-slate-500 text-left leading-tight align-top">核心建议</td>
+                        <td className="py-3 px-3 text-[11px] font-bold text-slate-500 text-left leading-tight align-middle">建议</td>
                         {reports.map((r, idx) => (
-                          <td key={idx} className="py-3 px-0.5 text-[11px] text-slate-600 leading-tight align-top">
-                            {r.suggestion}
+                          <td key={idx} className="py-3 px-0.5 text-[11px] font-black text-slate-600 leading-tight align-middle whitespace-nowrap">
+                            {r.suggestion.replace('建议开展网格交易', '开展网格').replace('建议小资金测试', '小量测试').replace('不建议使用网格策略', '不宜网格').replace('建议', '')}
                           </td>
                         ))}
                       </tr>
                       {[
                         { 
-                          label: '趋势强度评估 (3分)', 
+                          name: '趋势强度',
+                          scoreLabel: '(3分)',
                           key: 'trend', 
                           metrics: [
-                            { label: '累计收益率', key: 'cumulativeReturn', unit: '%' },
-                            { label: '最大连涨天数', key: 'maxConsecutiveUp', unit: 'd' },
-                            { label: '最大连跌天数', key: 'maxConsecutiveDown', unit: 'd' }
+                            { label: '累计涨幅', key: 'cumulativeReturn', unit: '%' },
+                            { label: '最长连涨', key: 'maxConsecutiveUp', unit: 'd' },
+                            { label: '最长连跌', key: 'maxConsecutiveDown', unit: 'd' }
                           ] 
                         },
                         { 
-                          label: '波动率水平评估 (3分)', 
+                          name: '波动水平',
+                          scoreLabel: '(3分)',
                           key: 'volatility', 
                           metrics: [
-                            { label: '年化波动率', key: 'annualizedVolatility', unit: '%' },
-                            { label: '日内均振幅', key: 'averageIntradayVolatility', unit: '%' }
+                            { label: '年化波动', key: 'annualizedVolatility', unit: '%' },
+                            { label: '日均振幅', key: 'averageIntradayVolatility', unit: '%' }
                           ] 
                         },
                         { 
-                          label: '震荡特征评估 (2分)', 
+                          name: '震荡特征',
+                          scoreLabel: '(2分)',
                           key: 'oscillation', 
                           metrics: [
-                            { label: '涨跌交替频率', key: 'trendChangeFreq', unit: '%' }
+                            { label: '交替频率', key: 'trendChangeFreq', unit: '%' }
                           ] 
                         },
                         { 
-                          label: '价格分布评估 (2分)', 
+                          name: '价格分布',
+                          scoreLabel: '(2分)',
                           key: 'priceDistribution', 
                           metrics: [
-                            { label: '布林通道占比', key: 'bollingerRatio', unit: '%' }
+                            { label: '中枢占比', key: 'bollingerRatio', unit: '%' }
                           ] 
                         }
                       ].map((dim) => (
                         <tr key={dim.key}>
-                          <td className="py-3 text-xs font-bold text-slate-600 text-left align-top leading-tight">
-                            <div>{dim.label.split(' ')[0]}</div>
-                            <div className="text-[10px] text-slate-400 font-medium mt-0.5">{dim.label.split(' ')[1]}</div>
+                          <td className="py-3 px-3 text-[11px] font-bold text-slate-500 text-left align-top pt-[14px] leading-tight">
+                            <div className="flex flex-col">
+                              <span>{dim.name}</span>
+                              <span className="text-[9px] opacity-60 font-medium">{dim.scoreLabel}</span>
+                            </div>
                           </td>
                           {reports.map((r, idx) => (
                             <td key={idx} className="py-3 px-0.5 align-top">
                               <div className="flex flex-col items-center">
-                                <span className="inline-block w-full py-1 bg-slate-50 rounded-md text-base font-black text-slate-800">
+                                <span className="inline-block w-full py-0.5 bg-slate-50 rounded text-sm font-black text-slate-800">
                                   {r.detailedScores[dim.key as keyof typeof r.detailedScores]}
                                 </span>
-                                <div className="mt-2 space-y-1.5">
+                                <div className="mt-2 space-y-1">
                                   {dim.metrics.map((m, mIdx) => (
                                     <div key={mIdx} className="text-[10px] text-slate-500 font-medium leading-tight flex flex-col items-center text-center">
-                                      <span className="opacity-80 mb-0.5 break-words max-w-[60px]">{m.label}</span>
-                                      <span className="tabular-nums font-bold text-slate-700">{r.details[m.key as keyof typeof r.details]}{m.unit}</span>
+                                      <span className="opacity-70 whitespace-nowrap">{m.label}</span>
+                                      <span className="tabular-nums font-bold text-slate-800 text-[11px]">{r.details[m.key as keyof typeof r.details]}{m.unit}</span>
                                     </div>
                                   ))}
                                 </div>
@@ -329,22 +347,22 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                           <ul className="text-xs text-slate-600 space-y-1.5 grid grid-cols-1 sm:grid-cols-2">
                             <li className="flex items-center gap-1.5">
                               <span className="text-blue-500 font-bold">1.</span> 
-                              <span>趋势强度 (3分) : <span className="text-slate-500">避免单边市</span></span>
+                              <span>趋势强度: <span className="text-slate-500">避单边</span></span>
                               <span className="ml-auto text-blue-600 font-bold bg-white px-1.5 py-0.5 rounded shadow-sm text-[10px]">{report.detailedScores.trend}分</span>
                             </li>
                             <li className="flex items-center gap-1.5">
                               <span className="text-blue-500 font-bold">2.</span> 
-                              <span>波动率水平 (3分) : <span className="text-slate-500">需要有适当波动</span></span>
+                              <span>波动水平: <span className="text-slate-500">需活跃</span></span>
                               <span className="ml-auto text-blue-600 font-bold bg-white px-1.5 py-0.5 rounded shadow-sm text-[10px]">{report.detailedScores.volatility}分</span>
                             </li>
                             <li className="flex items-center gap-1.5">
                               <span className="text-blue-500 font-bold">3.</span> 
-                              <span>震荡特征 (2分) : <span className="text-slate-500">涨跌交替频繁</span></span>
+                              <span>震荡特征: <span className="text-slate-500">交替频</span></span>
                               <span className="ml-auto text-blue-600 font-bold bg-white px-1.5 py-0.5 rounded shadow-sm text-[10px]">{report.detailedScores.oscillation}分</span>
                             </li>
                             <li className="flex items-center gap-1.5">
                               <span className="text-blue-500 font-bold">4.</span> 
-                              <span>价格分布 (2分) : <span className="text-slate-500">在通道内运行</span></span>
+                              <span>均值回归: <span className="text-slate-500">在通道</span></span>
                               <span className="ml-auto text-blue-600 font-bold bg-white px-1.5 py-0.5 rounded shadow-sm text-[10px]">{report.detailedScores.priceDistribution}分</span>
                             </li>
                           </ul>
@@ -407,26 +425,33 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                   <div className="text-[10px] text-[#cc5e00]/70 font-medium tracking-wider">更新于 {new Date(report.summary.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
                 </div>
                 
-                <div className="pt-10 pb-2 grid grid-cols-3 gap-x-2 gap-y-5">
+                <div className="pt-10 pb-2 grid grid-cols-2 gap-x-6 gap-y-6">
                   <div>
                     <div className="text-[10px] sm:text-xs font-bold text-[#b3774d] mb-1 leading-tight flex items-center gap-1 group relative">
-                      单日平均振幅
+                      平均振幅
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-40 cursor-help"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
                       <div className="absolute bottom-full left-0 mb-1 w-44 p-2 bg-slate-800 text-white text-[10px] rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 pointer-events-none">
-                        (当日最高 - 当日最低) / 前收盘 的平均值。反映日常整体波动强度。
+                        (当日高 - 当日低) / 前收盘 的平均值。
                       </div>
                     </div>
                     <div className="flex items-baseline gap-0.5 mb-1">
                       <span className="text-xl sm:text-2xl font-black text-[#f57c00]">{report.backtest.avgDailyAmplitude}</span>
                       <span className="text-xs font-bold text-[#f57c00]">%</span>
                     </div>
+                    <div className="flex text-[10px] text-[#b3774d]/70 items-center gap-1 group relative whitespace-nowrap">
+                       建议网格大小为 <span className="font-bold">{report.backtest.recommendedGridSize}%</span>
+                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-40 cursor-help"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                       <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 pointer-events-none text-left">
+                         基于历史中位数振幅计算，通常设为1.2倍。建议网格大小应能有效覆盖日内波动。
+                       </div>
+                    </div>
                   </div>
                   <div>
                     <div className="text-[10px] sm:text-xs font-bold text-[#b3774d] mb-1 leading-tight flex items-center gap-1 group relative">
                       中位数振幅
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-40 cursor-help"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
-                      <div className="absolute bottom-full left-0 mb-1 w-44 p-2 bg-slate-800 text-white text-[10px] rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 pointer-events-none">
-                        日振幅排序后的中间值。相比平均值更具代表性，排除了极端上涨/下跌的影响。
+                      <div className="absolute bottom-full left-0 mb-1 w-44 p-2 bg-slate-800 text-white text-[10px] rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 pointer-events-none text-left">
+                        日振幅排序后的中间值。反映日常波动的典型水平。
                       </div>
                     </div>
                     <div className="flex items-baseline gap-0.5 mb-1">
@@ -435,37 +460,59 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                     </div>
                   </div>
                   <div>
-                    <div className="text-[10px] sm:text-xs font-bold text-[#b3774d] mb-1 leading-tight text-right">历史最大回撤</div>
-                    <div className="flex items-baseline gap-0.5 mb-1 justify-end">
+                    <div className="text-[10px] sm:text-xs font-bold text-[#b3774d] mb-1 leading-tight">历史最大回撤</div>
+                    <div className="flex items-baseline gap-0.5 mb-1">
                       <span className="text-xl sm:text-2xl font-black text-[#e53935]">{report.backtest.maxDrawdown === 0 ? '-' : `-${report.backtest.maxDrawdown}`}</span>
                       {report.backtest.maxDrawdown !== 0 && <span className="text-xs font-bold text-[#e53935]">%</span>}
                     </div>
                   </div>
-                  
-                  <div className="col-span-3 text-[10px] sm:text-xs text-[#b3774d]/70 -mt-2 flex items-center gap-1 group relative">
-                     建议网格大小为 <span className="font-bold">{report.backtest.recommendedGridSize}%</span>
-                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-40 cursor-help"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
-                     <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 pointer-events-none">
-                       基于历史中位数振幅计算，建议网格大小应能覆盖日内波动，同时兼顾成交频率。通常设为中位数振幅的1.2倍。
-                     </div>
+                  <div>
+                    <div className="text-[10px] sm:text-xs font-bold text-[#b3774d] mb-1 leading-tight flex items-center gap-1 group relative">
+                      累计涨跌幅
+                    </div>
+                    <div className="flex items-baseline gap-0.5 mb-1">
+                      <span className={`text-xl sm:text-2xl font-black ${report.details.cumulativeReturn >= 0 ? 'text-[#f57c00]' : 'text-emerald-600'}`}>{report.details.cumulativeReturn > 0 ? `+${report.details.cumulativeReturn}` : report.details.cumulativeReturn}</span>
+                      <span className={`text-xs font-bold ${report.details.cumulativeReturn >= 0 ? 'text-[#f57c00]' : 'text-emerald-600'}`}>%</span>
+                    </div>
                   </div>
                   
                   <div className="col-span-3 bg-white/50 p-3 rounded-lg border border-[#ffecb3]/50">
                     <div className="flex items-center gap-1 mb-2 group relative">
                       <div className="text-[10px] sm:text-xs font-bold text-[#b3774d] uppercase">价格运行区间</div>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-40 cursor-help"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
-                      <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 pointer-events-none">
-                        展示所选周期内的历史极值。中间的橙色点代表【当前最新价格】处于该历史区间中的位置。
+                      <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 pointer-events-none text-left">
+                        展示所选周期内的历史极值与建议覆盖范围。
                       </div>
                     </div>
                     <div className="flex items-center justify-between mb-2">
                        <div className="text-center">
-                         <div className="text-[9px] text-slate-400 font-bold">历史最低</div>
-                         <div className="text-sm font-black text-[#f57c00]">{report.backtest.historicalMin}</div>
+                         <div className="text-[9px] text-slate-400 font-bold">最低 {report.backtest.historicalMin}</div>
                        </div>
-                       <div className="h-0.5 flex-1 mx-4 bg-[#ffecb3] rounded-full relative">
-                         {/* Highlight the recommended "safe range" if we want, but let's just do the dot for now */}
-                         <div className="absolute inset-0 bg-gradient-to-r from-[#ffd54f] to-[#ff8f00] rounded-full opacity-30"></div>
+                       <div className="h-0.5 flex-1 mx-2 bg-[#ffecb3] rounded-full relative">
+                         {/* Historical range gradient */}
+                         <div className="absolute inset-0 bg-gradient-to-r from-[#ffd54f]/20 to-[#ff8f00]/20 rounded-full"></div>
+                         
+                         {/* Recommended safe range bar */}
+                         {(() => {
+                            const histMin = report.backtest.historicalMin;
+                            const histMax = report.backtest.historicalMax;
+                            const safeMin = report.backtest.safeGridMin;
+                            const safeMax = report.backtest.safeGridMax;
+                            
+                            const left = Math.min(100, Math.max(0, ((safeMin - histMin) / (histMax - histMin)) * 100));
+                            const right = Math.min(100, Math.max(0, ((safeMax - histMin) / (histMax - histMin)) * 100));
+                            const width = Math.max(0, right - left);
+                            
+                            return (
+                              <div 
+                                className="absolute top-1/2 -translate-y-1/2 h-1.5 bg-[#f57c00] rounded-full opacity-30 z-0"
+                                style={{ left: `${left}%`, width: `${width}%` }}
+                                title={`建议覆盖: ${safeMin} - ${safeMax}`}
+                              ></div>
+                            );
+                         })()}
+
+                         {/* Current Price Indicator */}
                          {(() => {
                            const min = report.backtest.historicalMin;
                            const max = report.backtest.historicalMax;
@@ -473,19 +520,22 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                            const pos = Math.min(100, Math.max(0, ((cur - min) / (max - min)) * 100));
                            return (
                              <div 
-                               className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-white border-2 border-[#f57c00] rounded-full shadow-sm z-1"
+                               className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-white border-2 border-[#f57c00] rounded-full shadow-sm z-10"
                                style={{ left: `${pos}%` }}
+                               title={`当前价: ${cur}`}
                              ></div>
                            );
                          })()}
                        </div>
                        <div className="text-center">
-                         <div className="text-[9px] text-slate-400 font-bold">历史最高</div>
-                         <div className="text-sm font-black text-[#f57c00]">{report.backtest.historicalMax}</div>
+                         <div className="text-[9px] text-slate-400 font-bold">最高 {report.backtest.historicalMax}</div>
                        </div>
                     </div>
-                    <div className="text-[10px] sm:text-xs text-[#b3774d]/80 text-center font-bold bg-[#fff5d6] py-1.5 rounded">
-                      安全建议覆盖: [{report.backtest.safeGridMin}, {report.backtest.safeGridMax}]
+                    <div className="flex items-center justify-center gap-4 text-[10px] text-[#b3774d]/80 font-bold bg-[#fff5d6] py-1 rounded">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-1 bg-[#f57c00]/30 rounded-full"></div>
+                        <span>建议覆盖圈: [{report.backtest.safeGridMin}, {report.backtest.safeGridMax}]</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -530,27 +580,27 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                 <div className="space-y-4">
                   {[
                     { 
-                      label: 'A. 趋势评估', 
+                      label: 'A. 趋势强度', 
                       score: report.detailedScores.trend,
                       interpretation: report.interpretations['收益率'],
                       info: report.metricsInfo?.['收益率'],
                       details: [
-                        {label: '累计收益', value: `${report.details.cumulativeReturn}%`},
-                        {label: '最大连涨/跌', value: `${report.details.maxConsecutiveUp}/${report.details.maxConsecutiveDown}天`}
+                        {label: '累计涨幅', value: `${report.details.cumulativeReturn}%`},
+                        {label: '连涨跌', value: `${report.details.maxConsecutiveUp}/${report.details.maxConsecutiveDown}天`}
                       ]
                     },
                     { 
-                      label: 'B. 波动率评估', 
+                      label: 'B. 波动水平', 
                       score: report.detailedScores.volatility,
                       interpretation: report.interpretations['波动率'],
                       info: report.metricsInfo?.['波动率'],
                       details: [
-                        {label: '年化波动率', value: `${report.details.annualizedVolatility}%`},
-                        {label: '日内均值', value: `${report.details.averageIntradayVolatility}%`}
+                        {label: '年化波动', value: `${report.details.annualizedVolatility}%`},
+                        {label: '均振幅', value: `${report.details.averageIntradayVolatility}%`}
                       ]
                     },
                     { 
-                      label: 'C. 震荡特征', 
+                      label: 'C. 震荡频率', 
                       score: report.detailedScores.oscillation,
                       interpretation: report.interpretations['震荡特征'],
                       info: report.metricsInfo?.['震荡特征'],
@@ -564,7 +614,7 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                       interpretation: report.interpretations['价格分布'],
                       info: report.metricsInfo?.['价格分布'],
                       details: [
-                        {label: '布林通道内占比', value: `${report.details.bollingerRatio}%`}
+                        {label: '通道占比', value: `${report.details.bollingerRatio}%`}
                       ]
                     },
                   ].map(i => (
@@ -579,8 +629,8 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                       <div className="flex items-center gap-4 mb-3 flex-wrap bg-slate-50 p-2 rounded-lg">
                         {i.details.map((it, idx) => (
                           <div key={idx} className="flex items-baseline gap-1">
-                            <span className="text-[10px] text-slate-500 font-medium">{it.label}</span>
-                            <span className="text-sm font-black text-slate-900 tabular-nums">{it.value}</span>
+                            <span className="text-[11px] text-slate-500 font-medium">{it.label}</span>
+                            <span className="text-[13px] font-black text-slate-950 tabular-nums">{it.value}</span>
                           </div>
                         ))}
                       </div>
