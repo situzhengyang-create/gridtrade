@@ -374,6 +374,77 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                 )}
               </div>
   
+              {/* Historical Data Review */}
+              <div className="bg-[#fffdf7] border border-[#ffecb3] rounded-2xl p-4 shadow-[0_2px_10px_-4px_rgba(245,124,0,0.15)] relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-10 bg-[#fff5d6] border-b border-[#ffecb3] flex items-center justify-between px-4">
+                  <div className="flex items-center gap-1.5 text-[#cc5e00] font-bold text-[11px] tracking-widest uppercase">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+                    历史数据回顾 ({timeframes[activeTimeframe].label})
+                  </div>
+                  <div className="text-[10px] text-[#cc5e00]/70 font-medium tracking-wider">更新于 {new Date(report.summary.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                </div>
+                
+                <div className="pt-10 pb-2 grid grid-cols-3 gap-x-2 gap-y-5">
+                  <div>
+                    <div className="text-[10px] sm:text-xs font-bold text-[#b3774d] mb-1 leading-tight">单日平均振幅</div>
+                    <div className="flex items-baseline gap-0.5 mb-1">
+                      <span className="text-xl sm:text-2xl font-black text-[#f57c00]">{report.backtest.avgDailyAmplitude}</span>
+                      <span className="text-xs font-bold text-[#f57c00]">%</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] sm:text-xs font-bold text-[#b3774d] mb-1 leading-tight">中位数振幅</div>
+                    <div className="flex items-baseline gap-0.5 mb-1">
+                      <span className="text-xl sm:text-2xl font-black text-[#f57c00]">{report.backtest.medianDailyAmplitude}</span>
+                      <span className="text-xs font-bold text-[#f57c00]">%</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] sm:text-xs font-bold text-[#b3774d] mb-1 leading-tight text-right">历史最大回撤</div>
+                    <div className="flex items-baseline gap-0.5 mb-1 justify-end">
+                      <span className="text-xl sm:text-2xl font-black text-[#e53935]">{report.backtest.maxDrawdown === 0 ? '-' : `-${report.backtest.maxDrawdown}`}</span>
+                      {report.backtest.maxDrawdown !== 0 && <span className="text-xs font-bold text-[#e53935]">%</span>}
+                    </div>
+                  </div>
+                  
+                  <div className="col-span-3 text-[10px] sm:text-xs text-[#b3774d]/70 -mt-2">
+                     建议网格大小为 <span className="font-bold">{report.backtest.recommendedGridSize}%</span>
+                  </div>
+                  
+                  <div className="col-span-3 bg-white/50 p-3 rounded-lg border border-[#ffecb3]/50">
+                    <div className="text-[10px] sm:text-xs font-bold text-[#b3774d] mb-2 uppercase">价格运行区间</div>
+                    <div className="flex items-center justify-between mb-2">
+                       <div className="text-center">
+                         <div className="text-[9px] text-slate-400 font-bold">历史最低</div>
+                         <div className="text-sm font-black text-[#f57c00]">{report.backtest.historicalMin}</div>
+                       </div>
+                       <div className="h-0.5 flex-1 mx-4 bg-gradient-to-r from-[#ffd54f] to-[#ff8f00] rounded-full relative">
+                         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-white border-2 border-[#f57c00] rounded-full"></div>
+                       </div>
+                       <div className="text-center">
+                         <div className="text-[9px] text-slate-400 font-bold">历史最高</div>
+                         <div className="text-sm font-black text-[#f57c00]">{report.backtest.historicalMax}</div>
+                       </div>
+                    </div>
+                    <div className="text-[10px] sm:text-xs text-[#b3774d]/80 text-center font-bold bg-[#fff5d6] py-1.5 rounded">
+                      安全建议覆盖: [{report.backtest.safeGridMin}, {report.backtest.safeGridMax}]
+                    </div>
+                  </div>
+                </div>
+                
+                {onApplySuggestion && (
+                  <button 
+                    onClick={() => {
+                      onApplySuggestion(report.backtest.safeGridMin, report.backtest.safeGridMax, report.backtest.recommendedGridSize);
+                    }}
+                    className="w-full mt-4 bg-gradient-to-r from-[#ff9800] to-[#f57c00] hover:from-[#f57c00] hover:to-[#e65100] text-white font-bold py-3 rounded-lg text-sm sm:text-base shadow-md transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 5 5L20 7"/></svg>
+                    一键预置网格参数
+                  </button>
+                )}
+              </div>
+
               <section>
                 <h3 className="text-[11px] font-bold text-slate-400 mb-3 uppercase tracking-widest px-1">核心性能指标详析</h3>
                 <div className="space-y-4">
@@ -515,68 +586,6 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                           : <li className="text-slate-400 italic">暂无明显重大风险指标</li>}
                       </ul>
                   </div>
-              </div>
-  
-              {/* Historical Data Review */}
-              <div className="bg-[#fffdf7] border border-[#ffecb3] rounded-2xl p-4 shadow-[0_2px_10px_-4px_rgba(245,124,0,0.15)] relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-10 bg-[#fff5d6] border-b border-[#ffecb3] flex items-center justify-between px-4">
-                  <div className="flex items-center gap-1.5 text-[#cc5e00] font-bold text-[11px] tracking-widest uppercase">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
-                    历史数据回顾
-                  </div>
-                  <div className="text-[10px] text-[#cc5e00]/70 font-medium tracking-wider">更新于 {new Date(report.summary.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
-                </div>
-                
-                <div className="pt-10 pb-2 grid grid-cols-2 gap-x-4 gap-y-5">
-                  <div>
-                    <div className="text-[10px] font-bold text-[#b3774d] mb-1">单日平均 / 中位数振幅</div>
-                    <div className="flex items-baseline gap-1 mb-1">
-                      <span className="text-xl font-black text-[#f57c00]">{report.backtest.avgDailyAmplitude}</span><span className="text-sm font-bold text-[#f57c00]">%/</span>
-                      <span className="text-sm font-bold text-[#f57c00]/70">{report.backtest.medianDailyAmplitude}%</span>
-                    </div>
-                    <div className="text-[10px] text-[#b3774d]/70">建议网格大小为 {report.backtest.recommendedGridSize}%</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold text-[#b3774d] mb-1">最大历史回撤 (1Y/3Y)</div>
-                    <div className="flex items-baseline gap-1 mb-1">
-                      <span className="text-xl font-black text-[#e53935]">{report.backtest.maxDrawdown1Y === 0 ? '-' : `-${report.backtest.maxDrawdown1Y}%`}</span>
-                      <span className="text-sm font-bold text-[#e53935]/70 mx-1">/</span>
-                      <span className="text-sm font-bold text-[#e53935]/70">{report.backtest.maxDrawdown3Y === 0 ? '-' : `-${report.backtest.maxDrawdown3Y}%`}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="col-span-2 bg-white/50 p-3 rounded-lg border border-[#ffecb3]/50">
-                    <div className="text-[10px] font-bold text-[#b3774d] mb-2 uppercase">价格运行区间</div>
-                    <div className="flex items-center justify-between mb-2">
-                       <div className="text-center">
-                         <div className="text-[9px] text-slate-400 font-bold">历史最低</div>
-                         <div className="text-sm font-black text-[#f57c00]">{report.backtest.historicalMin}</div>
-                       </div>
-                       <div className="h-0.5 flex-1 mx-4 bg-gradient-to-r from-[#ffd54f] to-[#ff8f00] rounded-full relative">
-                         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-white border-2 border-[#f57c00] rounded-full"></div>
-                       </div>
-                       <div className="text-center">
-                         <div className="text-[9px] text-slate-400 font-bold">历史最高</div>
-                         <div className="text-sm font-black text-[#f57c00]">{report.backtest.historicalMax}</div>
-                       </div>
-                    </div>
-                    <div className="text-[10px] text-[#b3774d]/80 text-center font-bold bg-[#fff5d6] py-1 rounded">
-                      安全建议覆盖: [{report.backtest.safeGridMin}, {report.backtest.safeGridMax}]
-                    </div>
-                  </div>
-                </div>
-                
-                {onApplySuggestion && (
-                  <button 
-                    onClick={() => {
-                      onApplySuggestion(report.backtest.safeGridMin, report.backtest.safeGridMax, report.backtest.recommendedGridSize);
-                    }}
-                    className="w-full mt-4 bg-gradient-to-r from-[#ff9800] to-[#f57c00] hover:from-[#f57c00] hover:to-[#e65100] text-white font-bold py-2.5 rounded-lg text-sm shadow-md transition-all active:scale-[0.98] flex items-center justify-center gap-2"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 5 5L20 7"/></svg>
-                    一键预置网格参数
-                  </button>
-                )}
               </div>
             </>
           )}

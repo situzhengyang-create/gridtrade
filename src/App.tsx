@@ -163,6 +163,25 @@ export default function App() {
     strategies.find(s => s.id === activeId) || null
   , [strategies, activeId]);
 
+  const refreshingRef = React.useRef<Set<string>>(new Set());
+
+  // 自动无感刷新历史报告
+  useEffect(() => {
+    if (view === AppView.REPORT && activeStrategy?.symbol) {
+      const cs = activeStrategy.symbol.toLowerCase();
+      const reportData = analysisMap[cs];
+      if (reportData && reportData.reports && reportData.reports.length > 0) {
+        const isOldData = reportData.reports[0].backtest?.maxDrawdown === undefined;
+        if (isOldData && !loadingMap[cs] && !refreshingRef.current.has(cs)) {
+          refreshingRef.current.add(cs);
+          handleStartAnalysis([cs], true).finally(() => {
+            refreshingRef.current.delete(cs);
+          });
+        }
+      }
+    }
+  }, [view, activeStrategy?.symbol, analysisMap, loadingMap]);
+
   const cleanSymbols = (input: string): string[] => {
     // Regex to match stock codes: 6 digits, or sh/sz followed by 6 digits
     const regex = /(?:sh|sz)?\d{6}/gi;
@@ -171,7 +190,7 @@ export default function App() {
     return Array.from(new Set(matches.map(s => s.toLowerCase())));
   };
 
-  const handleStartAnalysis = async (customSymbols?: string[] | any) => {
+  const handleStartAnalysis = async (customSymbols?: string[] | any, forceRefresh = false) => {
     const isCustomArray = Array.isArray(customSymbols);
     const symbols = isCustomArray ? customSymbols : cleanSymbols(symbolsInput);
     if (symbols.length === 0) {
@@ -183,16 +202,18 @@ export default function App() {
       setSymbolsInput('');
     }
 
-    setView(AppView.SUMMARY);
+    if (!forceRefresh) {
+      setView(AppView.SUMMARY);
+    }
     setAnalyzedSymbols(prev => Array.from(new Set([...prev, ...symbols])));
     
     const canonicalSymbols = symbols.map(s => s.toLowerCase());
-    const unanalyzedCanonicalSymbols = canonicalSymbols.filter(s => !analysisMap[s]);
+    const symbolsToRefresh = forceRefresh ? canonicalSymbols : canonicalSymbols.filter(s => !analysisMap[s]);
     
     // Set all pending symbols to loading right away
     setLoadingMap(prev => {
       const next = { ...prev };
-      for (const cs of unanalyzedCanonicalSymbols) {
+      for (const cs of symbolsToRefresh) {
         next[cs] = true;
       }
       return next;
@@ -202,7 +223,7 @@ export default function App() {
     let isFirstFetch = true;
     for (const symbol of symbols) {
       const canonicalSymbol = symbol.toLowerCase();
-      if (analysisMap[canonicalSymbol]) continue;
+      if (!forceRefresh && analysisMap[canonicalSymbol]) continue;
 
       if (!isFirstFetch) {
         await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));

@@ -56,6 +56,7 @@ export interface DiagnosisReport {
   backtest: {
     avgDailyAmplitude: number;
     medianDailyAmplitude: number;
+    maxDrawdown: number;
     maxDrawdown1Y: number;
     maxDrawdown3Y: number;
     historicalMin: number;
@@ -222,6 +223,7 @@ export const analyzeGridSuitability = (data: RawData[]): DiagnosisReport => {
   const oneYearData = processedData.slice(Math.max(0, processedData.length - 250));
   const threeYearData = processedData.slice(Math.max(0, processedData.length - 750));
   
+  const maxDD = calcMaxDrawdown(processedData);
   const maxDD1Y = calcMaxDrawdown(oneYearData);
   const maxDD3Y = calcMaxDrawdown(threeYearData);
 
@@ -327,6 +329,7 @@ export const analyzeGridSuitability = (data: RawData[]): DiagnosisReport => {
     backtest: {
       avgDailyAmplitude: Number(avgAmplitude.toFixed(2)),
       medianDailyAmplitude: Number(medianAmplitude.toFixed(2)),
+      maxDrawdown: Number(maxDD.toFixed(2)),
       maxDrawdown1Y: Number(maxDD1Y.toFixed(2)),
       maxDrawdown3Y: Number(maxDD3Y.toFixed(2)),
       historicalMin: Number(historicalMin.toFixed(3)),
