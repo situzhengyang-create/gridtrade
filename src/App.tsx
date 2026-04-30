@@ -45,13 +45,32 @@ enum AppView {
 }
 
 export default function App() {
-  const [view, setView] = useState<AppView>(AppView.HOME);
+  const [analyzedSymbols, setAnalyzedSymbols] = useState<string[]>(() => {
+    const saved = localStorage.getItem('grid_analyzed_symbols');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
+  const [view, setView] = useState<AppView>(() => {
+    const saved = localStorage.getItem('grid_app_view');
+    if (saved) return saved as AppView;
+    const symbolsJson = localStorage.getItem('grid_analyzed_symbols');
+    if (symbolsJson) {
+       try {
+          const syms = JSON.parse(symbolsJson);
+          if (Array.isArray(syms) && syms.length > 0) return AppView.SUMMARY;
+       } catch(e) {}
+    }
+    return AppView.HOME;
+  });
+  
   const [symbolsInput, setSymbolsInput] = useState('');
-  const [analysisMap, setAnalysisMap] = useState<Record<string, { reports: DiagnosisReport[], name: string, statusText: string }>>({});
+  const [analysisMap, setAnalysisMap] = useState<Record<string, { reports: DiagnosisReport[], name: string, statusText: string }>>(() => {
+    const saved = localStorage.getItem('grid_analysis_map');
+    return saved ? JSON.parse(saved) : {};
+  });
   const [loadingMap, setLoadingMap] = useState<Record<string, boolean>>({});
   
   const [strategies, setStrategies] = useState<GridStrategy[]>([]);
-  const [analyzedSymbols, setAnalyzedSymbols] = useState<string[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [summarySortMode, setSummarySortMode] = useState<'DEFAULT' | 'CONCLUSION'>('DEFAULT');
   
@@ -119,6 +138,20 @@ export default function App() {
     localStorage.setItem('grid_trader_strategies', JSON.stringify(strategies));
   }, [strategies]);
 
+  // Persist App View
+  useEffect(() => {
+    localStorage.setItem('grid_app_view', view);
+  }, [view]);
+
+  // Persist analysis state
+  useEffect(() => {
+    localStorage.setItem('grid_analysis_map', JSON.stringify(analysisMap));
+  }, [analysisMap]);
+
+  useEffect(() => {
+    localStorage.setItem('grid_analyzed_symbols', JSON.stringify(analyzedSymbols));
+  }, [analyzedSymbols]);
+
   // 切换到设置视图或切换策略时自动刷新价格
   useEffect(() => {
     if (view === AppView.SETTING && activeStrategy?.symbol) {
@@ -153,6 +186,18 @@ export default function App() {
     setView(AppView.SUMMARY);
     setAnalyzedSymbols(prev => Array.from(new Set([...prev, ...symbols])));
     
+    const canonicalSymbols = symbols.map(s => s.toLowerCase());
+    const unanalyzedCanonicalSymbols = canonicalSymbols.filter(s => !analysisMap[s]);
+    
+    // Set all pending symbols to loading right away
+    setLoadingMap(prev => {
+      const next = { ...prev };
+      for (const cs of unanalyzedCanonicalSymbols) {
+        next[cs] = true;
+      }
+      return next;
+    });
+    
     // Process each symbol
     let isFirstFetch = true;
     for (const symbol of symbols) {
@@ -164,7 +209,6 @@ export default function App() {
       }
       isFirstFetch = false;
       
-      setLoadingMap(prev => ({ ...prev, [canonicalSymbol]: true }));
       try {
         const data = await fetchDiagnosticData(canonicalSymbol);
         if (data && data.length >= 60) {
