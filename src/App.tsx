@@ -90,6 +90,7 @@ export default function App() {
   };
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isBacktesting, setIsBacktesting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // New delete mode states
   const [isDeleteMode, setIsDeleteMode] = useState(false);
@@ -210,30 +211,49 @@ export default function App() {
 
   const getLivePrice = async (symbol: string, targetId: string) => {
     setIsRefreshing(true);
+    setError(null);
     try {
-      const formattedSymbol = symbol.toLowerCase().startsWith('sh') || symbol.toLowerCase().startsWith('sz') 
-        ? symbol.toLowerCase() 
-        : (symbol.startsWith('6') || symbol.startsWith('5') ? 'sh' + symbol : 'sz' + symbol);
+      const canonicalSymbol = symbol.toLowerCase();
+      const formattedSymbol = canonicalSymbol.startsWith('sh') || canonicalSymbol.startsWith('sz') 
+        ? canonicalSymbol 
+        : (canonicalSymbol.startsWith('6') || canonicalSymbol.startsWith('5') ? 'sh' + canonicalSymbol : 'sz' + canonicalSymbol);
       
-      const response = await axios.get(`/api/proxy/tencent-quote?q=s_${formattedSymbol}`);
-      const text = response.data;
-      const match = text.match(/="(.*)"/);
+      // Try simple quote first
+      let response = await axios.get(`/api/proxy/tencent-quote?q=s_${formattedSymbol}`);
+      let text = response.data;
+      let match = text.match(/="(.*)"/);
+      
+      // If simple fails, try full quote
+      if (!match || !match[1]) {
+        response = await axios.get(`/api/proxy/tencent-quote?q=${formattedSymbol}`);
+        text = response.data;
+        match = text.match(/="(.*)"/);
+      }
+
       if (match && match[1]) {
         const parts = match[1].split('~');
+        // Simple quote matches usually index 1(name), 3(price)
+        // Full quote matches index 1(name), 3(price) too but has more fields
         if (parts.length > 3) {
           const name = parts[1];
           const price = parseFloat(parts[3]);
-          setStrategies(prev => prev.map(s => s.id === targetId ? {
-            ...s,
-            securityName: name,
-            currentPrice: price,
-            initialPrice: s.initialPrice || price,
-            lastPriceTime: Date.now()
-          } : s));
+          if (!isNaN(price) && price > 0) {
+            setStrategies(prev => prev.map(s => s.id === targetId ? {
+              ...s,
+              securityName: name, 
+              currentPrice: price,
+              initialPrice: s.initialPrice || price,
+              lastPriceTime: Date.now()
+            } : s));
+            return;
+          }
         }
       }
-    } catch (e) {
+      throw new Error('未获取到有效的价格数据');
+    } catch (e: any) {
       console.error(e);
+      const errorMsg = e.response?.data?.details || e.message;
+      setError(`刷新价格失败: ${errorMsg}`);
     } finally {
       setIsRefreshing(false);
     }
@@ -945,6 +965,27 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {error && (
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] w-[90%] max-w-lg"
+        >
+          <div className="bg-red-50 border border-red-200 p-3 rounded-xl shadow-xl flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+              <span className="text-red-800 font-bold">!</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-red-900 line-clamp-1">{error}</p>
+              <p className="text-[10px] text-red-500 mt-0.5">请检查证券代码或稍后重试</p>
+            </div>
+            <button onClick={() => setError(null)} className="p-2 text-red-400 hover:text-red-600 transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </motion.div>
+      )}
     </div>
   );
 }

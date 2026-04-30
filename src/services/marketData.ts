@@ -12,15 +12,23 @@ export async function fetchBacktestData(symbol: string): Promise<BacktestResult 
     
     let data = null;
     
-    // 尝试两个市场的前缀: 0(深交所) 和 1(上交所)
-    for (const prefix of ['0', '1']) {
-      const secid = `${prefix}.${formattedSymbol}`;
-      const url = `/api/proxy/market-data?secid=${secid}&beg=${start}&end=${end}`;
-      
-      const response = await axios.get(url);
-      if (response.data && response.data.data && response.data.data.klines && response.data.data.klines.length > 0) {
-        data = response.data.data;
-        break;
+    // 尝试两个市场的前缀: 1(上交所) 和 0(深交所)
+    // 通常 6/5 开头是上海(1)，其他(0/3)是深圳(0)
+    const preferredPrefix = (formattedSymbol.startsWith('6') || formattedSymbol.startsWith('5')) ? '1' : '0';
+    const prefixes = preferredPrefix === '1' ? ['1', '0'] : ['0', '1'];
+
+    for (const prefix of prefixes) {
+      try {
+        const secid = `${prefix}.${formattedSymbol}`;
+        const url = `/api/proxy/market-data?secid=${secid}&beg=${start}&end=${end}`;
+        
+        const response = await axios.get(url, { timeout: 15000 });
+        if (response.data && response.data.data && response.data.data.klines && response.data.data.klines.length > 0) {
+          data = response.data.data;
+          break;
+        }
+      } catch (e) {
+        console.warn(`Failed to fetch for prefix ${prefix}`, e);
       }
     }
     
@@ -120,15 +128,22 @@ export async function fetchDiagnosticData(symbol: string): Promise<RawData[] | n
     
     let klines: string[] = [];
     
-    // 尝试两个市场的前缀: 0(深交所) 和 1(上交所)
-    for (const prefix of ['0', '1']) {
-      const secid = `${prefix}.${formattedSymbol}`;
-      const url = `/api/proxy/market-data?secid=${secid}&beg=${start}&end=${end}`;
-      
-      const response = await axios.get(url);
-      if (response.data && response.data.data && response.data.data.klines && response.data.data.klines.length > 0) {
-        klines = response.data.data.klines;
-        break;
+    // 尝试两个市场的前缀: 1(上交所) 和 0(深交所)
+    const preferredPrefix = (formattedSymbol.startsWith('6') || formattedSymbol.startsWith('5')) ? '1' : '0';
+    const prefixes = preferredPrefix === '1' ? ['1', '0'] : ['0', '1'];
+
+    for (const prefix of prefixes) {
+      try {
+        const secid = `${prefix}.${formattedSymbol}`;
+        const url = `/api/proxy/market-data?secid=${secid}&beg=${start}&end=${end}`;
+        
+        const response = await axios.get(url, { timeout: 15000 });
+        if (response.data && response.data.data && response.data.data.klines && response.data.data.klines.length > 0) {
+          klines = response.data.data.klines;
+          break;
+        }
+      } catch (e) {
+        console.warn(`Failed to fetch for prefix ${prefix}`, e);
       }
     }
     
