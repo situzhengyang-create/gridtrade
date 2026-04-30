@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { DiagnosisReport } from '../services/gridDiagnosticService';
-import { getEastMoneyUrl, getEastMoneyAppScheme } from '../lib/stockUtils';
+import { getEastMoneyUrl, getEastMoneyAppScheme, getEastMoneyWapUrl } from '../lib/stockUtils';
 
 interface Props {
   reports: DiagnosisReport[];
@@ -130,12 +130,13 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     const appScheme = getEastMoneyAppScheme(sym);
     const webUrl = getEastMoneyUrl(sym);
+    const wapUrl = getEastMoneyWapUrl(sym);
     
     if (isMobile) {
       window.location.href = appScheme;
       setTimeout(() => {
         if (!document.hidden) {
-          window.open(webUrl, '_blank');
+          window.open(wapUrl, '_blank');
         }
       }, 2500);
     } else {

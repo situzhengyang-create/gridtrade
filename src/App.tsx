@@ -33,7 +33,7 @@ import { GridStrategy, GridLevel } from './types';
 import RichEditor from './components/RichEditor';
 import { fetchBacktestData, fetchDiagnosticData } from './services/marketData';
 import { analyzeGridSuitability, DiagnosisReport } from './services/gridDiagnosticService';
-import { getEastMoneyUrl, getEastMoneyAppScheme } from './lib/stockUtils';
+import { getEastMoneyUrl, getEastMoneyAppScheme, getEastMoneyWapUrl } from './lib/stockUtils';
 import { GridDiagnosisReport } from './components/GridDiagnosisReport';
 import { fetchTencentQuote } from './lib/jsonp';
 
@@ -164,6 +164,46 @@ export default function App() {
     strategies.find(s => s.id === activeId) || null
   , [strategies, activeId]);
 
+  const drawdownMarkers = useMemo(() => {
+    if (!activeStrategy?.symbol) return [];
+    const cs = activeStrategy.symbol.toLowerCase();
+    const reportData = analysisMap[cs];
+    if (!reportData || !reportData.reports) return [];
+    
+    return reportData.reports.map((r, i) => ({
+      label: i === 0 ? '1年最大回撤' : (i === 1 ? '2年最大回撤' : '3年最大回撤'),
+      percent: r.backtest.maxDrawdown,
+      color: i === 0 ? 'border-amber-400 bg-amber-50 text-amber-700' : (i === 1 ? 'border-red-400 bg-red-50 text-red-700' : 'border-purple-400 bg-purple-50 text-purple-700')
+    })).filter(m => m.percent > 0).sort((a, b) => a.percent - b.percent);
+  }, [activeStrategy, analysisMap]);
+
+  const activeIndex = useMemo(() => {
+    if (!activeId || strategies.length === 0) return -1;
+    // We use analyzedSymbols as the source of truth for the order, matches the table view
+    const orderedSymbols = [...analyzedSymbols].reverse();
+    const activeSymbol = strategies.find(s => s.id === activeId)?.symbol?.toLowerCase();
+    return orderedSymbols.findIndex(s => s.toLowerCase() === activeSymbol);
+  }, [activeId, strategies, analyzedSymbols]);
+
+  const navigateSecurity = (direction: 'prev' | 'next') => {
+    const orderedSymbols = [...analyzedSymbols].reverse();
+    if (orderedSymbols.length <= 1) return;
+    
+    let nextIndex = direction === 'next' ? activeIndex + 1 : activeIndex - 1;
+    if (nextIndex < 0) nextIndex = orderedSymbols.length - 1;
+    if (nextIndex >= orderedSymbols.length) nextIndex = 0;
+    
+    const nextSymbol = orderedSymbols[nextIndex].toLowerCase();
+    const nextStrategy = strategies.find(s => s.symbol?.toLowerCase() === nextSymbol);
+    
+    if (nextStrategy) {
+      setActiveId(nextStrategy.id);
+      if (view === AppView.GRID && !nextStrategy.currentPrice) {
+        getLivePrice(nextStrategy.symbol!, nextStrategy.id);
+      }
+    }
+  };
+
   const refreshingRef = React.useRef<Set<string>>(new Set());
   
   const handleStockClick = (e: React.MouseEvent, symbol: string) => {
@@ -173,14 +213,15 @@ export default function App() {
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     const appScheme = getEastMoneyAppScheme(symbol);
     const webUrl = getEastMoneyUrl(symbol);
+    const wapUrl = getEastMoneyWapUrl(symbol);
     
     if (isMobile) {
       // 在手机端，尝试唤起 App
       window.location.href = appScheme;
-      // 作为一个兜底，如果几秒后还没跳走（说明没装 App），可以跳转到 Web 版
+      // 作为一个兜底，如果几秒后还没跳走（说明没装 App），开启 WAP 版
       setTimeout(() => {
         if (!document.hidden) {
-          window.open(webUrl, '_blank');
+          window.open(wapUrl, '_blank');
         }
       }, 2500);
     } else {
@@ -463,8 +504,8 @@ export default function App() {
                 <X className="w-5 h-5" />
               </button>
             )}
-            <h2 className="text-sm font-black text-slate-900 uppercase tracking-widest">
-              {isDeleteMode ? `已选择 ${selectedSymbols.length} 个标的` : '诊断看板'}
+            <h2 className="text-xl font-black text-slate-900 uppercase tracking-tighter">
+              {isDeleteMode ? `已选择 ${selectedSymbols.length} 个标的` : 'GridTrade'}
             </h2>
           </div>
           <div className="flex items-center gap-3">
@@ -855,7 +896,25 @@ export default function App() {
           </motion.div>
         )}
         {(view === AppView.SETTING || view === AppView.GRID || view === AppView.REPORT) && (
-          <motion.div key="detail" className="flex-1 flex flex-col overflow-hidden" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 50 }}>
+          <motion.div 
+            key="detail-container"
+            className="flex-1 flex flex-col overflow-hidden relative"
+            drag="x"
+            dragConstraints={{ left: 0, right: 0 }}
+            dragElastic={0.05}
+            dragMomentum={false}
+            onDragEnd={(e, { offset, velocity }) => {
+              const swipeThreshold = 50;
+              const velocityThreshold = 500;
+              if (Math.abs(velocity.x) > velocityThreshold || Math.abs(offset.x) > swipeThreshold) {
+                if (offset.x > 0) navigateSecurity('prev');
+                else navigateSecurity('next');
+              }
+            }}
+            initial={{ opacity: 0, x: 50 }} 
+            animate={{ opacity: 1, x: 0 }} 
+            exit={{ opacity: 0, x: 50 }}
+          >
             {renderDetailHeader()}
             <div className="flex-1 overflow-y-auto bg-white">
               {activeStrategy && (
@@ -1011,94 +1070,116 @@ export default function App() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 text-sm">
-                            {gridData.map((row) => {
+                            {gridData.map((row, idx) => {
                               const isBelowMaxDrawdown = activeStrategy.backtest?.maxDrawdown !== undefined && 
                                                          row.level < 0 && 
                                                          row.percentFromInitial !== undefined && 
                                                          Math.abs(row.percentFromInitial) > activeStrategy.backtest.maxDrawdown;
+                              
+                              const nextRow = gridData[idx + 1];
+                              const currentAbs = Math.abs(row.percentFromInitial || 0);
+                              const nextAbs = nextRow ? Math.abs(nextRow.percentFromInitial || 0) : 1000;
+                              
+                              const matchingMarkers = drawdownMarkers.filter(m => 
+                                m.percent >= currentAbs && m.percent < nextAbs
+                              );
+
                               return (
-                              <tr 
-                                key={row.level} 
-                                className={`transition-colors hover:bg-slate-50 ${row.level === 0 ? 'bg-amber-50/50' : (isBelowMaxDrawdown ? 'bg-red-50/50' : '')}`}
-                              >
-                                <td className="px-1 py-3.5 font-mono text-slate-500 font-bold text-center">
-                                  <div className="flex flex-col items-center gap-0.5">
-                                    <span>{row.level === 0 ? '0' : row.level}</span>
-                                    {row.percentFromInitial !== undefined && row.level !== 0 && (
-                                      <span className={`text-[10px] font-normal tracking-tighter ${isBelowMaxDrawdown ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
-                                        {row.percentFromInitial > 0 ? '+' : ''}{row.percentFromInitial}%
-                                      </span>
-                                    )}
-                                  </div>
-                                </td>
-                                <td className={`px-1 py-3.5 font-bold ${row.level === 0 ? 'text-slate-900' : (row.level > 0 ? 'text-red-500' : 'text-green-500')}`}>
-                                  <CopyableValue value={row.price.toString()} />
-                                </td>
-                                <td className="px-1 py-3.5 font-medium text-slate-700">
-                                  <div className="flex flex-col gap-0.5">
-                                    <CopyableValue value={row.amount.toString()} displayValue={row.amount.toLocaleString()} />
-                                    {row.cumulativeAmount !== undefined && row.level !== 0 && (
-                                      <span className="text-[10px] text-slate-400 font-normal tracking-tighter opacity-80 decoration-slate-300">
-                                        累计: {row.cumulativeAmount.toLocaleString()}
-                                      </span>
-                                    )}
-                                  </div>
-                                </td>
-                                <td className={`px-1 py-3.5 font-bold ${row.level !== 0 ? 'text-blue-600' : 'text-slate-300'}`}>
-                                  {row.level !== 0 ? `+${row.profit}` : '-'}
-                                </td>
-                                <td className="px-1 py-3.5 text-center">
-                                  {row.level === 0 ? (
-                                    <span className="text-xs font-bold text-slate-400">参考位</span>
-                                  ) : (
-                                    <div className="flex items-center justify-center gap-3">
-                                      <button 
-                                        onClick={() => {
-                                          const placed = activeStrategy.placedLevels || [];
-                                          const isPlaced = placed.includes(row.level);
-                                          const nextPlaced = isPlaced ? placed.filter(l => l !== row.level) : [...placed, row.level];
-                                          // 如果取消设置，同时也取消触发
-                                          let nextTriggered = activeStrategy.triggeredLevels || [];
-                                          if (isPlaced) {
-                                            nextTriggered = nextTriggered.filter(l => l !== row.level);
-                                          }
-                                          updateStrategy({ ...activeStrategy, placedLevels: nextPlaced, triggeredLevels: nextTriggered });
-                                        }}
-                                        className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
-                                          (activeStrategy.placedLevels || []).includes(row.level)
-                                            ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
-                                            : 'border-slate-200 bg-white hover:border-blue-400 grayscale'
-                                        }`}
-                                        title={ (activeStrategy.placedLevels || []).includes(row.level) ? "取消设置" : "标记已设置" }
-                                      >
-                                        <Check className="w-3 h-3" />
-                                      </button>
-                                      <button 
-                                        onClick={() => {
-                                          const triggered = activeStrategy.triggeredLevels || [];
-                                          const isTriggered = triggered.includes(row.level);
-                                          const nextTriggered = isTriggered ? triggered.filter(l => l !== row.level) : [...triggered, row.level];
-                                          // 如果触发，则必须是已设置
-                                          let nextPlaced = activeStrategy.placedLevels || [];
-                                          if (!isTriggered && !nextPlaced.includes(row.level)) {
-                                            nextPlaced = [...nextPlaced, row.level];
-                                          }
-                                          updateStrategy({ ...activeStrategy, triggeredLevels: nextTriggered, placedLevels: nextPlaced });
-                                        }}
-                                        className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
-                                          (activeStrategy.triggeredLevels || []).includes(row.level)
-                                            ? 'bg-green-500 border-green-500 text-white shadow-sm'
-                                            : 'border-slate-300 bg-white hover:border-green-400 grayscale opacity-40 hover:opacity-100'
-                                        }`}
-                                        title={ (activeStrategy.triggeredLevels || []).includes(row.level) ? "取消触发" : "标记已触发" }
-                                      >
-                                        {row.level > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                                      </button>
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            );
+                                <React.Fragment key={row.level}>
+                                  <tr 
+                                    className={`transition-colors hover:bg-slate-50 ${row.level === 0 ? 'bg-amber-50/50' : (isBelowMaxDrawdown ? 'bg-red-50/50' : '')}`}
+                                  >
+                                    <td className="px-1 py-3.5 font-mono text-slate-500 font-bold text-center">
+                                      <div className="flex flex-col items-center gap-0.5">
+                                        <span>{row.level === 0 ? '0' : row.level}</span>
+                                        {row.percentFromInitial !== undefined && row.level !== 0 && (
+                                          <span className={`text-[10px] font-normal tracking-tighter ${isBelowMaxDrawdown ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
+                                            {row.percentFromInitial > 0 ? '+' : ''}{row.percentFromInitial}%
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className={`px-1 py-3.5 font-bold ${row.level === 0 ? 'text-slate-900' : (row.level > 0 ? 'text-red-500' : 'text-green-500')}`}>
+                                      <CopyableValue value={row.price.toString()} />
+                                    </td>
+                                    <td className="px-1 py-3.5 font-medium text-slate-700">
+                                      <div className="flex flex-col gap-0.5">
+                                        <CopyableValue value={row.amount.toString()} displayValue={row.amount.toLocaleString()} />
+                                        {row.cumulativeAmount !== undefined && row.level !== 0 && (
+                                          <span className="text-[10px] text-slate-400 font-normal tracking-tighter opacity-80 decoration-slate-300">
+                                            累计: {row.cumulativeAmount.toLocaleString()}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className={`px-1 py-3.5 font-bold ${row.level !== 0 ? 'text-blue-600' : 'text-slate-300'}`}>
+                                      {row.level !== 0 ? `+${row.profit}` : '-'}
+                                    </td>
+                                    <td className="px-1 py-3.5 text-center">
+                                      {row.level === 0 ? (
+                                        <span className="text-xs font-bold text-slate-400">参考位</span>
+                                      ) : (
+                                        <div className="flex items-center justify-center gap-3">
+                                          <button 
+                                            onClick={() => {
+                                              const placed = activeStrategy.placedLevels || [];
+                                              const isPlaced = placed.includes(row.level);
+                                              const nextPlaced = isPlaced ? placed.filter(l => l !== row.level) : [...placed, row.level];
+                                              // 如果取消设置，同时也取消触发
+                                              let nextTriggered = activeStrategy.triggeredLevels || [];
+                                              if (isPlaced) {
+                                                nextTriggered = nextTriggered.filter(l => l !== row.level);
+                                              }
+                                              updateStrategy({ ...activeStrategy, placedLevels: nextPlaced, triggeredLevels: nextTriggered });
+                                            }}
+                                            className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
+                                              (activeStrategy.placedLevels || []).includes(row.level)
+                                                ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                                                : 'border-slate-200 bg-white hover:border-blue-400 grayscale'
+                                            }`}
+                                            title={ (activeStrategy.placedLevels || []).includes(row.level) ? "取消设置" : "标记已设置" }
+                                          >
+                                            <Check className="w-3 h-3" />
+                                          </button>
+                                          <button 
+                                            onClick={() => {
+                                              const triggered = activeStrategy.triggeredLevels || [];
+                                              const isTriggered = triggered.includes(row.level);
+                                              const nextTriggered = isTriggered ? triggered.filter(l => l !== row.level) : [...triggered, row.level];
+                                              // 如果触发，则必须是已设置
+                                              let nextPlaced = activeStrategy.placedLevels || [];
+                                              if (!isTriggered && !nextPlaced.includes(row.level)) {
+                                                nextPlaced = [...nextPlaced, row.level];
+                                              }
+                                              updateStrategy({ ...activeStrategy, triggeredLevels: nextTriggered, placedLevels: nextPlaced });
+                                            }}
+                                            className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
+                                              (activeStrategy.triggeredLevels || []).includes(row.level)
+                                                ? 'bg-green-500 border-green-500 text-white shadow-sm'
+                                                : 'border-slate-300 bg-white hover:border-green-400 grayscale opacity-40 hover:opacity-100'
+                                            }`}
+                                            title={ (activeStrategy.triggeredLevels || []).includes(row.level) ? "取消触发" : "标记已触发" }
+                                          >
+                                            {row.level > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                                          </button>
+                                        </div>
+                                      )}
+                                    </td>
+                                  </tr>
+                                  
+                                  {matchingMarkers.map(m => (
+                                    <tr key={m.label} className="bg-white">
+                                      <td colSpan={5} className="py-2.5 px-0 relative">
+                                        <div className={`mx-2 border-t-2 border-dashed ${m.color.split(' ')[0]} opacity-60`}></div>
+                                        <div className={`absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 px-2.5 py-0.5 rounded-full border text-[9px] font-black ${m.color} shadow-sm whitespace-nowrap z-10 flex items-center gap-1`}>
+                                          <AlertTriangle className="w-2.5 h-2.5" />
+                                          {m.label}: -{m.percent}%
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </React.Fragment>
+                              );
                             })}
                           </tbody>
                         </table>

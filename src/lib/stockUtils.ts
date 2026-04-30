@@ -49,3 +49,26 @@ export function getEastMoneyAppScheme(symbol: string): string {
   
   return `eastmoney://nw/search?keyword=${cleanSymbol}`;
 }
+
+/**
+ * Generates an East Money (东方财富) WAP quote page URL for mobile browsers.
+ */
+export function getEastMoneyWapUrl(symbol: string): string {
+  if (!symbol) return '';
+  const cleanSymbol = symbol.replace(/SH|SZ/i, '').trim().toUpperCase();
+
+  if (cleanSymbol.length === 6) {
+    // SH: 1, SZ: 0
+    let market = '1';
+    if (cleanSymbol.startsWith('0') || cleanSymbol.startsWith('3') || cleanSymbol.startsWith('1')) {
+      market = '0';
+    }
+    return `https://wap.eastmoney.com/quote/stock/${market}.${cleanSymbol}.html`;
+  }
+
+  if (cleanSymbol.length === 5) {
+    return `https://wap.eastmoney.com/quote/stock/116.${cleanSymbol}.html`;
+  }
+
+  return `https://so.eastmoney.com/web/s?keyword=${cleanSymbol}`;
+}
