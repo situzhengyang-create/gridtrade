@@ -206,6 +206,32 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
+                      <tr className="bg-blue-50/40">
+                        <td className="py-3 text-xs font-black text-blue-700 text-left">总计 (/10)</td>
+                        {reports.map((r, idx) => (
+                          <td key={idx} className="py-3 px-0.5">
+                            <span className="text-lg font-black text-blue-700">{r.score}</span>
+                          </td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td className="py-3 text-xs font-bold text-slate-600 text-left">适合程度</td>
+                        {reports.map((r, idx) => (
+                          <td key={idx} className="py-3 px-0.5">
+                            <span className={`text-xs font-black ${getRatingColor(r.rating).split(' ')[0]}`}>
+                              {r.rating}
+                            </span>
+                          </td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <td className="py-3 text-[11px] font-bold text-slate-500 text-left leading-tight align-top">核心建议</td>
+                        {reports.map((r, idx) => (
+                          <td key={idx} className="py-3 px-0.5 text-[11px] text-slate-600 leading-tight align-top">
+                            {r.suggestion}
+                          </td>
+                        ))}
+                      </tr>
                       {[
                         { 
                           label: '趋势强度评估 (3分)', 
@@ -263,32 +289,6 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                           ))}
                         </tr>
                       ))}
-                      <tr className="bg-blue-50/40">
-                        <td className="py-3 text-xs font-black text-blue-700 text-left">总计 (/10)</td>
-                        {reports.map((r, idx) => (
-                          <td key={idx} className="py-3 px-0.5">
-                            <span className="text-lg font-black text-blue-700">{r.score}</span>
-                          </td>
-                        ))}
-                      </tr>
-                      <tr>
-                        <td className="py-3 text-xs font-bold text-slate-600 text-left">适合程度</td>
-                        {reports.map((r, idx) => (
-                          <td key={idx} className="py-3 px-0.5">
-                            <span className={`text-xs font-black ${getRatingColor(r.rating).split(' ')[0]}`}>
-                              {r.rating}
-                            </span>
-                          </td>
-                        ))}
-                      </tr>
-                      <tr>
-                        <td className="py-3 text-[11px] font-bold text-slate-500 text-left leading-tight align-top">核心建议</td>
-                        {reports.map((r, idx) => (
-                          <td key={idx} className="py-3 px-0.5 text-[11px] text-slate-600 leading-tight align-top">
-                            {r.suggestion}
-                          </td>
-                        ))}
-                      </tr>
                     </tbody>
                   </table>
                 </div>

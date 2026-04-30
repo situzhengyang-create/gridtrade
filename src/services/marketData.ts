@@ -53,6 +53,24 @@ export async function fetchBacktestData(symbol: string): Promise<BacktestResult 
         console.warn(`Error compiling URL for prefix ${prefix}`, e);
       }
     }
+
+    // Fallback to Tencent if East Money fails completely
+    if (!data || !data.klines || data.klines.length === 0) {
+      try {
+        const tencentMarket = (formattedSymbol.startsWith('6') || formattedSymbol.startsWith('5')) ? 'sh' : 'sz';
+        const tencentUrl = `https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get?_var=kline_day&param=${tencentMarket}${formattedSymbol},day,${start.slice(0,4)}-${start.slice(4,6)}-${start.slice(6,8)},${end.slice(0,4)}-${end.slice(4,6)}-${end.slice(6,8)},640,qfq`;
+        const res: any = await jsonp(tencentUrl, 'kline_day');
+        const kData = res?.data?.[`${tencentMarket}${formattedSymbol}`]?.day || res?.data?.[`${tencentMarket}${formattedSymbol}`]?.qfqday;
+        if (kData && kData.length > 0) {
+          data = {
+            name: '',
+            klines: kData.map((d: any) => `${d[0]},${d[1]},${d[2]},${d[3]},${d[4]},${d[5]},${d[6] || 0},${d[7] || 0},${d[8] || 0}`)
+          };
+        }
+      } catch (e) {
+        console.warn('Tencent fallback failed in fetchBacktestData', e);
+      }
+    }
     
     if (!data) {
       return null;
@@ -188,6 +206,21 @@ export async function fetchDiagnosticData(symbol: string): Promise<RawData[] | n
         }
       } catch (e) {
         console.warn(`Error compiling URL for prefix ${prefix}`, e);
+      }
+    }
+
+    // Fallback to Tencent if East Money fails
+    if (klines.length === 0) {
+      try {
+        const tencentMarket = (formattedSymbol.startsWith('6') || formattedSymbol.startsWith('5')) ? 'sh' : 'sz';
+        const tencentUrl = `https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get?_var=kline_day&param=${tencentMarket}${formattedSymbol},day,${start.slice(0,4)}-${start.slice(4,6)}-${start.slice(6,8)},${end.slice(0,4)}-${end.slice(4,6)}-${end.slice(6,8)},640,qfq`;
+        const res: any = await jsonp(tencentUrl, 'kline_day');
+        const kData = res?.data?.[`${tencentMarket}${formattedSymbol}`]?.day || res?.data?.[`${tencentMarket}${formattedSymbol}`]?.qfqday;
+        if (kData && kData.length > 0) {
+          klines = kData.map((d: any) => `${d[0]},${d[1]},${d[2]},${d[3]},${d[4]},${d[5]},${d[6] || 0},${d[7] || 0},${d[8] || 0}`);
+        }
+      } catch (e) {
+        console.warn('Tencent fallback failed in fetchDiagnosticData', e);
       }
     }
     

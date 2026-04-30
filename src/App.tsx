@@ -179,38 +179,33 @@ export default function App() {
 
   const activeIndex = useMemo(() => {
     if (!activeId || strategies.length === 0) return -1;
-    // We use analyzedSymbols as the source of truth for the order, matches the table view
-    const orderedSymbols = [...analyzedSymbols].reverse();
-    const activeSymbol = strategies.find(s => s.id === activeId)?.symbol?.toLowerCase();
-    return orderedSymbols.findIndex(s => s.toLowerCase() === activeSymbol);
-  }, [activeId, strategies, analyzedSymbols]);
+    return strategies.findIndex(s => s.id === activeId);
+  }, [activeId, strategies]);
 
   const navigateSecurity = (direction: 'prev' | 'next') => {
-    const orderedSymbols = [...analyzedSymbols].reverse();
-    if (orderedSymbols.length <= 1) return;
+    if (strategies.length <= 1) return;
     
     let nextIndex = direction === 'next' ? activeIndex + 1 : activeIndex - 1;
-    if (nextIndex < 0) nextIndex = orderedSymbols.length - 1;
-    if (nextIndex >= orderedSymbols.length) nextIndex = 0;
+    if (nextIndex < 0) nextIndex = strategies.length - 1;
+    if (nextIndex >= strategies.length) nextIndex = 0;
     
-    const nextSymbol = orderedSymbols[nextIndex].toLowerCase();
-    const nextStrategy = strategies.find(s => s.symbol?.toLowerCase() === nextSymbol);
+    const nextStrategy = strategies[nextIndex];
     
     if (nextStrategy) {
       setActiveId(nextStrategy.id);
-      if (view === AppView.GRID && !nextStrategy.currentPrice) {
-        getLivePrice(nextStrategy.symbol!, nextStrategy.id);
-      }
+      // Ensure we have price for the next one
+      getLivePrice(nextStrategy.symbol!, nextStrategy.id);
     }
   };
 
-  const swipeState = React.useRef({ startX: 0, startY: 0, isHorizontal: false });
+  const swipeState = React.useRef({ startX: 0, startY: 0, isHorizontal: false, startTime: 0 });
 
   const handleTouchStart = (e: React.TouchEvent) => {
     swipeState.current = {
       startX: e.touches[0].clientX,
       startY: e.touches[0].clientY,
-      isHorizontal: false
+      isHorizontal: false,
+      startTime: Date.now()
     };
   };
 
@@ -222,27 +217,34 @@ export default function App() {
     const dx = Math.abs(x - swipeState.current.startX);
     const dy = Math.abs(y - swipeState.current.startY);
     
-    if (dx > dy && dx > 10) {
+    // Once identified as horizontal, stick with it
+    if (!swipeState.current.isHorizontal && dx > dy && dx > 8) {
       swipeState.current.isHorizontal = true;
+    }
+
+    if (swipeState.current.isHorizontal) {
       if (e.cancelable) e.preventDefault();
     }
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (!swipeState.current.isHorizontal) return;
-    
+    const duration = Date.now() - swipeState.current.startTime;
     const endX = e.changedTouches[0].clientX;
     const endY = e.changedTouches[0].clientY;
     const dx = endX - swipeState.current.startX;
     const dy = endY - swipeState.current.startY;
     
-    // Horizontal swipe threshold
-    if (Math.abs(dx) > 50 && Math.abs(dy) < 80) {
+    // Reset startX to prevent accidental triggers
+    const wasHorizontal = swipeState.current.isHorizontal;
+    swipeState.current.startX = 0;
+
+    if (!wasHorizontal) return;
+    
+    // Horizontal swipe threshold: 40px and within reasonable time/angle
+    if (Math.abs(dx) > 40 && Math.abs(dy) < 100 && duration < 500) {
       if (dx > 0) navigateSecurity('prev');
       else navigateSecurity('next');
     }
-    
-    swipeState.current.startX = 0;
   };
 
   const refreshingRef = React.useRef<Set<string>>(new Set());
