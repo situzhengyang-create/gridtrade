@@ -10,7 +10,6 @@ app.use(express.json());
 // API Proxy Route for Market Data (EastMoney)
 app.get('/api/proxy/market-data', async (req, res) => {
   const { secid, beg, end } = req.query;
-  console.log(`[Proxy] Market Data Request: secid=${secid}, range=${beg}-${end}`);
   
   try {
     if (!secid || !beg || !end) {
@@ -24,17 +23,15 @@ app.get('/api/proxy/market-data', async (req, res) => {
       headers: {
         'Referer': 'https://quote.eastmoney.com/',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': '*/*',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+        'Accept': 'application/json, text/javascript, */*; q=0.01'
       }
     });
 
-    console.log(`[Proxy] Market Data Success: ${secid}`);
     res.json(response.data);
   } catch (error: any) {
-    console.error(`[Proxy] Market Data Error (${secid}):`, error.message);
-    res.status(error.response?.status || 500).json({ 
-      error: 'Failed to fetch data from source', 
+    console.error(`[Proxy Error] EastMoney: ${error.message}`);
+    res.status(500).json({ 
+      error: 'Failed to fetch market data', 
       details: error.message 
     });
   }
@@ -43,31 +40,29 @@ app.get('/api/proxy/market-data', async (req, res) => {
 // API Proxy Route for Tencent Market Data
 app.get('/api/proxy/tencent-quote', async (req, res) => {
   const { q } = req.query;
-  console.log(`[Proxy] Tencent Quote Request: ${q}`);
   
   try {
     if (!q) {
-      return res.status(400).json({ error: 'Missing required parameter: q' });
+      return res.status(400).json({ error: 'Missing parameter q' });
     }
 
     const tencentUrl = `https://qt.gtimg.cn/q=${q}`;
     const response = await axios.get(tencentUrl, {
       timeout: 8000,
-      responseType: 'arraybuffer',
+      responseType: 'arraybuffer', // Get raw bytes for GBK decoding
       headers: {
         'Referer': 'https://gu.qq.com/',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
       }
     });
     
-    // Correctly decode GBK
-    const data = iconv.decode(Buffer.from(response.data), 'gbk');
-    console.log(`[Proxy] Tencent Quote Success: ${q}`);
-    res.send(data);
+    // Decode GBK to UTF-8
+    const decodedText = iconv.decode(Buffer.from(response.data), 'gbk');
+    res.send(decodedText);
   } catch (error: any) {
-     console.error(`[Proxy] Tencent Quote Error (${q}):`, error.message);
-     res.status(error.response?.status || 500).json({ 
-       error: 'Failed to fetch data from Tencent',
+     console.error(`[Proxy Error] Tencent: ${error.message}`);
+     res.status(500).json({ 
+       error: 'Failed to fetch tencent quote',
        details: error.message
      });
   }
