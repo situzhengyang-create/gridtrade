@@ -1,8 +1,8 @@
 {
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/index.ts"
+      "source": "/api/eastmoney/:path*",
+      "destination": "https://push2his.eastmoney.com/:path*"
     },
     {
       "source": "/(.*)",

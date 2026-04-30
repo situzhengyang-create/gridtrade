@@ -5,7 +5,6 @@ interface Props {
   reports: DiagnosisReport[];
   symbol: string;
   name: string;
-  onClose: () => void;
   onApplySuggestion?: (min: number, max: number, step: number) => void;
 }
 
@@ -120,7 +119,7 @@ const MetricCard = ({ item }: { item: any }) => {
   );
 };
 
-export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, onClose, onApplySuggestion }) => {
+export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, onApplySuggestion }) => {
   const [activeTimeframe, setActiveTimeframe] = useState(-1); // -1: 对比, 0: 1Y, 1: 2Y, 2: 3Y
   const report = activeTimeframe === -1 ? null : reports[activeTimeframe];
   const [showScoreLogic, setShowScoreLogic] = useState(false);
@@ -140,49 +139,44 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end sm:justify-center p-0 md:p-4 bg-slate-900/60 backdrop-blur-sm sm:overflow-y-auto">
-      <div className="bg-white w-full h-[100dvh] sm:h-auto sm:max-w-2xl md:max-w-3xl rounded-none sm:rounded-3xl shadow-2xl overflow-y-auto sm:max-h-[85vh] sm:mx-auto relative flex flex-col">
-        
-        {/* Sticky Header */}
-        <div className="sticky top-0 bg-white/90 backdrop-blur-md z-20 px-5 py-3.5 border-b border-slate-100 flex justify-between items-center shrink-0">
-          <div>
-            <h2 className="text-lg font-black text-slate-900 tracking-tight">{name}诊断报告</h2>
-            <div className="flex gap-1 mt-2">
+    <div className="w-full relative flex flex-col min-h-full">
+      {/* Header */}
+      <div className="bg-white px-5 py-3.5 border-b border-slate-100 flex items-center shrink-0 overflow-x-auto hide-scrollbar">
+          <div className="flex gap-1.5 w-full">
+            <button 
+              onClick={() => setActiveTimeframe(-1)}
+              className={`px-3.5 py-1.5 text-[11px] font-bold rounded-lg transition-colors whitespace-nowrap ${activeTimeframe === -1 ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            >
+              对比模式
+            </button>
+            {timeframes.map((tf, idx) => (
               <button 
-                onClick={() => setActiveTimeframe(-1)}
-                className={`px-3 py-1 text-[10px] font-bold rounded-lg transition-colors ${activeTimeframe === -1 ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                key={idx}
+                onClick={() => setActiveTimeframe(idx)}
+                className={`px-3.5 py-1.5 text-[11px] font-bold rounded-lg transition-colors whitespace-nowrap ${activeTimeframe === idx ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
               >
-                对比
+                {tf.label}
               </button>
-              {timeframes.map((tf, idx) => (
-                <button 
-                  key={idx}
-                  onClick={() => setActiveTimeframe(idx)}
-                  className={`px-3 py-1 text-[10px] font-bold rounded-lg transition-colors ${activeTimeframe === idx ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                >
-                  {tf.label}
-                </button>
-              ))}
-            </div>
+            ))}
           </div>
-          <button onClick={onClose} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors text-slate-500 shrink-0">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-          </button>
-        </div>
+      </div>
 
-        <div className="p-5 pb-12 space-y-6">
-          {activeTimeframe === -1 ? (
+      <div className="p-4 sm:p-5 pb-12 space-y-6 flex-1">
+          {reports.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full min-h-[400px] text-slate-400">
+              <svg className="w-12 h-12 mb-4 text-slate-200 animate-spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" strokeDasharray="32" strokeLinecap="round" className="opacity-75"></circle>
+              </svg>
+              <p className="text-sm font-medium">正在生成诊断报告...</p>
+              <p className="text-xs mt-2 opacity-60">通常需要几秒钟，请稍候</p>
+            </div>
+          ) : activeTimeframe === -1 ? (
             <div className="space-y-6">
-              <div className="bg-white border border-slate-100 p-5 rounded-2xl shadow-sm">
-                <h3 className="text-sm font-black text-slate-900 mb-6 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-blue-600"></span>
-                  多周期维度得分对比
-                </h3>
-                <div className="overflow-hidden">
-                  <table className="w-full text-center table-fixed">
+              <div className="overflow-x-hidden">
+                <table className="w-full text-center table-fixed">
                     <thead>
                       <tr className="text-[9px] text-slate-400 font-bold uppercase tracking-tight">
-                        <th className="pb-2 text-left w-[35%]">评估维度</th>
+                        <th className="pb-2 text-left w-[28%]">评估维度</th>
                         {timeframes.map((tf, idx) => (
                           <th key={idx} className="pb-2 px-0.5">{tf.label.replace('最近', '')}</th>
                         ))}
@@ -223,7 +217,10 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                         }
                       ].map((dim) => (
                         <tr key={dim.key}>
-                          <td className="py-3 text-[10px] font-bold text-slate-600 text-left align-top leading-tight">{dim.label}</td>
+                          <td className="py-3 text-[10px] font-bold text-slate-600 text-left align-top leading-tight">
+                            <div>{dim.label.split(' ')[0]}</div>
+                            <div className="text-[9px] text-slate-400 font-medium scale-90 origin-left mt-0.5">{dim.label.split(' ')[1]}</div>
+                          </td>
                           {reports.map((r, idx) => (
                             <td key={idx} className="py-3 px-0.5 align-top">
                               <div className="flex flex-col items-center">
@@ -232,8 +229,8 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                                 </span>
                                 <div className="mt-2 space-y-1">
                                   {dim.metrics.map((m, mIdx) => (
-                                    <div key={mIdx} className="text-[8px] text-slate-400 font-medium leading-none whitespace-nowrap flex flex-col items-center">
-                                      <span className="opacity-60 scale-90 origin-bottom mb-0.5">{m.label}</span>
+                                    <div key={mIdx} className="text-[8px] text-slate-400 font-medium leading-tight flex flex-col items-center text-center">
+                                      <span className="opacity-60 scale-90 origin-bottom mb-0.5 break-words max-w-[50px]">{m.label}</span>
                                       <span className="tabular-nums font-bold text-slate-600">{r.details[m.key as keyof typeof r.details]}{m.unit}</span>
                                     </div>
                                   ))}
@@ -272,7 +269,6 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                     </tbody>
                   </table>
                 </div>
-              </div>
             </div>
           ) : report && (
             <>
@@ -574,7 +570,6 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                   <button 
                     onClick={() => {
                       onApplySuggestion(report.backtest.safeGridMin, report.backtest.safeGridMax, report.backtest.recommendedGridSize);
-                      onClose();
                     }}
                     className="w-full mt-4 bg-gradient-to-r from-[#ff9800] to-[#f57c00] hover:from-[#f57c00] hover:to-[#e65100] text-white font-bold py-2.5 rounded-lg text-sm shadow-md transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                   >
@@ -586,7 +581,6 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
             </>
           )}
         </div>
-      </div>
     </div>
   );
 };

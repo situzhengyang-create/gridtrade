@@ -1,10 +1,11 @@
 import axios from 'axios';
 import { BacktestResult } from '../types';
 import { RawData } from './gridDiagnosticService';
+import { jsonp } from '../lib/jsonp';
 
 export async function fetchBacktestData(symbol: string): Promise<BacktestResult | null> {
   try {
-    const formattedSymbol = symbol.toLowerCase().replace(/sh|sz/, '');
+    const formattedSymbol = symbol.replace(/SH|SZ/i, '').toUpperCase();
       
     const end = new Date().toISOString().slice(0,10).replace(/-/g, '');
     const threeYearsAgo = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000);
@@ -12,23 +13,26 @@ export async function fetchBacktestData(symbol: string): Promise<BacktestResult 
     
     let data = null;
     
-    // 尝试两个市场的前缀: 1(上交所) 和 0(深交所)
-    // 通常 6/5 开头是上海(1)，其他(0/3)是深圳(0)
+    // 尝试多个市场的前缀: 1(上交所), 0(深交所), 100(美股等), 116(港股), 105, 106, 107
     const preferredPrefix = (formattedSymbol.startsWith('6') || formattedSymbol.startsWith('5')) ? '1' : '0';
-    const prefixes = preferredPrefix === '1' ? ['1', '0'] : ['0', '1'];
+    const prefixes = preferredPrefix === '1' ? ['1', '0', '100', '116', '105', '106', '107'] : ['0', '1', '100', '116', '105', '106', '107'];
 
     for (const prefix of prefixes) {
       try {
         const secid = `${prefix}.${formattedSymbol}`;
-        const url = `/api/proxy/market-data?secid=${secid}&beg=${start}&end=${end}`;
+        const baseUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=7eea3edcaed734bea9cbfc24409ed989&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`;
         
-        const response = await axios.get(url, { timeout: 15000 });
-        if (response.data && response.data.data && response.data.data.klines && response.data.data.klines.length > 0) {
-          data = response.data.data;
-          break;
+        try {
+          const response: any = await jsonp(baseUrl, 'cb');
+          if (response && response.data && response.data.klines && response.data.klines.length > 0) {
+            data = response.data;
+            break;
+          }
+        } catch (error) {
+          console.warn(`Failed jsonp for ${prefix}`, error);
         }
       } catch (e) {
-        console.warn(`Failed to fetch for prefix ${prefix}`, e);
+        console.warn(`Error compiling URL for prefix ${prefix}`, e);
       }
     }
     
@@ -120,7 +124,7 @@ export async function fetchBacktestData(symbol: string): Promise<BacktestResult 
 
 export async function fetchDiagnosticData(symbol: string): Promise<RawData[] | null> {
   try {
-    const formattedSymbol = symbol.toLowerCase().replace(/sh|sz/, '');
+    const formattedSymbol = symbol.replace(/SH|SZ/i, '').toUpperCase();
       
     const end = new Date().toISOString().slice(0,10).replace(/-/g, '');
     const threeYearsAgo = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000);
@@ -128,22 +132,26 @@ export async function fetchDiagnosticData(symbol: string): Promise<RawData[] | n
     
     let klines: string[] = [];
     
-    // 尝试两个市场的前缀: 1(上交所) 和 0(深交所)
+    // 尝试多个市场的前缀: 1(上交所), 0(深交所), 100(美股等), 116(港股)
     const preferredPrefix = (formattedSymbol.startsWith('6') || formattedSymbol.startsWith('5')) ? '1' : '0';
-    const prefixes = preferredPrefix === '1' ? ['1', '0'] : ['0', '1'];
+    const prefixes = preferredPrefix === '1' ? ['1', '0', '100', '116', '105', '106', '107'] : ['0', '1', '100', '116', '105', '106', '107'];
 
     for (const prefix of prefixes) {
       try {
         const secid = `${prefix}.${formattedSymbol}`;
-        const url = `/api/proxy/market-data?secid=${secid}&beg=${start}&end=${end}`;
+        const baseUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=7eea3edcaed734bea9cbfc24409ed989&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`;
         
-        const response = await axios.get(url, { timeout: 15000 });
-        if (response.data && response.data.data && response.data.data.klines && response.data.data.klines.length > 0) {
-          klines = response.data.data.klines;
-          break;
+        try {
+          const response: any = await jsonp(baseUrl, 'cb');
+          if (response && response.data && response.data.klines && response.data.klines.length > 0) {
+            klines = response.data.klines;
+            break;
+          }
+        } catch (error) {
+           console.warn(`Failed jsonp for prefix ${prefix}`, error);
         }
       } catch (e) {
-        console.warn(`Failed to fetch for prefix ${prefix}`, e);
+        console.warn(`Error compiling URL for prefix ${prefix}`, e);
       }
     }
     

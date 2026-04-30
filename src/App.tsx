@@ -34,6 +34,7 @@ import RichEditor from './components/RichEditor';
 import { fetchBacktestData, fetchDiagnosticData } from './services/marketData';
 import { analyzeGridSuitability, DiagnosisReport } from './services/gridDiagnosticService';
 import { GridDiagnosisReport } from './components/GridDiagnosisReport';
+import { fetchTencentQuote } from './lib/jsonp';
 
 enum AppView {
   HOME = 'HOME',
@@ -136,11 +137,16 @@ export default function App() {
     return Array.from(new Set(matches.map(s => s.toLowerCase())));
   };
 
-  const handleStartAnalysis = async () => {
-    const symbols = cleanSymbols(symbolsInput);
+  const handleStartAnalysis = async (customSymbols?: string[] | any) => {
+    const isCustomArray = Array.isArray(customSymbols);
+    const symbols = isCustomArray ? customSymbols : cleanSymbols(symbolsInput);
     if (symbols.length === 0) {
-      alert('请在输入框中输入证券代码');
+      if (!isCustomArray) alert('请在输入框中输入证券代码');
       return;
+    }
+
+    if (!isCustomArray) {
+      setSymbolsInput('');
     }
 
     setView(AppView.SUMMARY);
@@ -166,10 +172,9 @@ export default function App() {
             const formattedSymbol = canonicalSymbol.startsWith('sh') || canonicalSymbol.startsWith('sz') 
               ? canonicalSymbol 
               : (canonicalSymbol.startsWith('6') || canonicalSymbol.startsWith('5') ? 'sh' + canonicalSymbol : 'sz' + canonicalSymbol);
-            const resp = await axios.get(`/api/proxy/tencent-quote?q=s_${formattedSymbol}`);
-            const match = resp.data.match(/="(.*)"/);
-            if (match && match[1]) {
-              name = match[1].split('~')[1];
+            const text = await fetchTencentQuote(`s_${formattedSymbol}`);
+            if (text) {
+              name = text.split('~')[1] || name;
             }
           } catch(e) {}
 
@@ -218,22 +223,16 @@ export default function App() {
         ? canonicalSymbol 
         : (canonicalSymbol.startsWith('6') || canonicalSymbol.startsWith('5') ? 'sh' + canonicalSymbol : 'sz' + canonicalSymbol);
       
-      // Try simple quote first
-      let response = await axios.get(`/api/proxy/tencent-quote?q=s_${formattedSymbol}`);
-      let text = response.data;
-      let match = text.match(/="(.*)"/);
+      // Try simple quote first (using JSONP trick)
+      let text = await fetchTencentQuote(`s_${formattedSymbol}`);
       
       // If simple fails, try full quote
-      if (!match || !match[1]) {
-        response = await axios.get(`/api/proxy/tencent-quote?q=${formattedSymbol}`);
-        text = response.data;
-        match = text.match(/="(.*)"/);
+      if (!text || text.split('~').length < 3) {
+        text = await fetchTencentQuote(formattedSymbol);
       }
 
-      if (match && match[1]) {
-        const parts = match[1].split('~');
-        // Simple quote matches usually index 1(name), 3(price)
-        // Full quote matches index 1(name), 3(price) too but has more fields
+      if (text) {
+        const parts = text.split('~');
         if (parts.length > 3) {
           const name = parts[1];
           const price = parseFloat(parts[3]);
@@ -252,8 +251,7 @@ export default function App() {
       throw new Error('未获取到有效的价格数据');
     } catch (e: any) {
       console.error(e);
-      const errorMsg = e.response?.data?.details || e.message;
-      setError(`刷新价格失败: ${errorMsg}`);
+      setError(`刷新价格失败: ${e.message}`);
     } finally {
       setIsRefreshing(false);
     }
@@ -542,6 +540,32 @@ export default function App() {
               })}
             </tbody>
           </table>
+
+          <div className="p-6 border-t border-slate-100 bg-slate-50 space-y-4">
+            <textarea 
+              value={symbolsInput}
+              onChange={(e) => setSymbolsInput(e.target.value)}
+              placeholder="继续添加代码：515980 sz000001 ..."
+              className="w-full h-24 p-4 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-300 outline-none transition-all font-mono placeholder:text-slate-300 placeholder:font-sans resize-none text-sm"
+            />
+            <button 
+              onClick={() => {
+                const newSymbols = cleanSymbols(symbolsInput);
+                if (newSymbols.length > 0) {
+                  setSymbolsInput('');
+                  const nonDuplicateSymbols = newSymbols.filter(s => !analyzedSymbols.includes(s));
+                  if (nonDuplicateSymbols.length > 0) {
+                    setAnalyzedSymbols(prev => [...prev, ...nonDuplicateSymbols]);
+                    handleStartAnalysis(nonDuplicateSymbols);
+                  }
+                }
+              }}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md shadow-blue-600/10 transition-all flex items-center justify-center gap-2 text-sm"
+            >
+              <Search className="w-4 h-4" />
+              添加并诊断
+            </button>
+          </div>
         </div>
 
         {/* Confirmation Modal */}
@@ -666,18 +690,18 @@ export default function App() {
         {(view === AppView.SETTING || view === AppView.GRID || view === AppView.REPORT) && (
           <motion.div key="detail" className="flex-1 flex flex-col overflow-hidden" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 50 }}>
             {renderDetailHeader()}
-            <div className="flex-1 overflow-y-auto bg-slate-50/50">
+            <div className="flex-1 overflow-y-auto bg-white">
               {activeStrategy && (
-                <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-8 pb-32">
+                <div className="pb-32 w-full">
                   {view === AppView.SETTING && (
                     <motion.div 
                       key="editor"
                       initial={{ opacity: 0, y: 5 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 5 }}
-                      className="space-y-4"
+                      className="space-y-2"
                     >
-                      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                      <div className="bg-white border-b border-slate-200 overflow-hidden">
                         <div className="bg-slate-50/50 px-4 py-2 border-b border-slate-100 flex items-center gap-2">
                           <Calculator className="w-4 h-4 text-blue-500" />
                           <h3 className="font-bold text-slate-700 text-xs">策略核心参数</h3>
@@ -733,7 +757,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                      <div className="bg-white border-b border-slate-200 overflow-hidden">
                         <div className="bg-slate-50/50 px-4 py-2 border-b border-slate-100 flex items-center gap-2">
                           <TrendingDown className="w-4 h-4 text-orange-500" />
                           <h3 className="font-bold text-slate-700 text-xs">动态仓位 & 费率</h3>
@@ -782,7 +806,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                      <div className="bg-white border-b border-slate-200 overflow-hidden">
                         <div className="bg-slate-50/50 px-4 py-2 border-b border-slate-100 flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <FileText className="w-4 h-4 text-indigo-500" />
@@ -806,17 +830,17 @@ export default function App() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden"
+                      className="bg-white overflow-hidden"
                     >
                       <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse min-w-[280px]">
                           <thead>
-                            <tr className="bg-slate-900 text-white whitespace-nowrap">
-                              <th className="px-1 py-2 text-xs font-bold text-center">层</th>
-                              <th className="px-1 py-2 text-xs font-bold">价格</th>
-                              <th className="px-1 py-2 text-xs font-bold">金额</th>
-                              <th className="px-1 py-2 text-xs font-bold text-blue-300">利润</th>
-                              <th className="px-1 py-2 text-xs font-bold text-center">状态</th>
+                            <tr className="bg-blue-600 border-b border-blue-700 text-white whitespace-nowrap">
+                              <th className="px-1 py-2 text-[11px] font-bold text-center tracking-wider opacity-90">层</th>
+                              <th className="px-1 py-2 text-[11px] font-bold tracking-wider opacity-90">价格</th>
+                              <th className="px-1 py-2 text-[11px] font-bold tracking-wider opacity-90">金额</th>
+                              <th className="px-1 py-2 text-[11px] font-bold tracking-wider text-blue-200">利润</th>
+                              <th className="px-1 py-2 text-[11px] font-bold text-center tracking-wider opacity-90">状态</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 text-sm">
@@ -920,18 +944,23 @@ export default function App() {
                   )}
 
                   {view === AppView.REPORT && (
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden min-h-[600px] flex flex-col">
+                    <motion.div 
+                      key="report"
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 5 }}
+                      className="bg-white overflow-hidden"
+                    >
                       <GridDiagnosisReport 
                         reports={analysisMap[activeStrategy.symbol!.toLowerCase()]?.reports || []}
                         symbol={activeStrategy.symbol!}
                         name={activeStrategy.name!}
-                        onClose={() => setView(AppView.SUMMARY)}
                         onApplySuggestion={(min, max, step) => {
                           updateStrategy({ ...activeStrategy, gridInterval: step });
                           setView(AppView.GRID);
                         }}
                       />
-                    </div>
+                    </motion.div>
                   )}
                 </div>
               )}
