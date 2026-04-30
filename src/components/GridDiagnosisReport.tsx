@@ -467,6 +467,28 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                 )}
               </div>
 
+              {/* Risk & Advantage */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="bg-emerald-50/50 border border-emerald-100 p-4.5 rounded-2xl shadow-sm">
+                      <h4 className="text-xs font-extrabold text-emerald-800 mb-3 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 优势指标
+                      </h4>
+                      <ul className="text-[11px] text-emerald-900 space-y-2">
+                        {report.advantages.map((a,idx) => <li key={idx} className="flex gap-1.5 leading-relaxed"><span className="opacity-40 text-[10px] mt-0.5">•</span> <span>{a}</span></li>)}
+                      </ul>
+                  </div>
+                  <div className="bg-rose-50/50 border border-rose-100 p-4.5 rounded-2xl shadow-sm">
+                      <h4 className="text-xs font-extrabold text-rose-800 mb-3 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span> 风险预警
+                      </h4>
+                      <ul className="text-[11px] text-rose-900 space-y-2">
+                        {report.risks.length > 0 
+                          ? report.risks.map((r,idx) => <li key={idx} className="flex gap-1.5 leading-relaxed"><span className="opacity-40 text-[10px] mt-0.5">•</span> <span>{r}</span></li>) 
+                          : <li className="text-slate-400 italic">暂无明显重大风险指标</li>}
+                      </ul>
+                  </div>
+              </div>
+
               <section>
                 <h3 className="text-[11px] font-bold text-slate-400 mb-3 uppercase tracking-widest px-1">核心性能指标详析</h3>
                 <div className="space-y-4">
@@ -587,28 +609,6 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                   ))}
                 </div>
               </section>
-  
-              {/* Risk & Advantage */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="bg-emerald-50/50 border border-emerald-100 p-4.5 rounded-2xl shadow-sm">
-                      <h4 className="text-xs font-extrabold text-emerald-800 mb-3 flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 优势指标
-                      </h4>
-                      <ul className="text-[11px] text-emerald-900 space-y-2">
-                        {report.advantages.map((a,idx) => <li key={idx} className="flex gap-1.5 leading-relaxed"><span className="opacity-40 text-[10px] mt-0.5">•</span> <span>{a}</span></li>)}
-                      </ul>
-                  </div>
-                  <div className="bg-rose-50/50 border border-rose-100 p-4.5 rounded-2xl shadow-sm">
-                      <h4 className="text-xs font-extrabold text-rose-800 mb-3 flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span> 风险预警
-                      </h4>
-                      <ul className="text-[11px] text-rose-900 space-y-2">
-                        {report.risks.length > 0 
-                          ? report.risks.map((r,idx) => <li key={idx} className="flex gap-1.5 leading-relaxed"><span className="opacity-40 text-[10px] mt-0.5">•</span> <span>{r}</span></li>) 
-                          : <li className="text-slate-400 italic">暂无明显重大风险指标</li>}
-                      </ul>
-                  </div>
-              </div>
             </>
           )}
         </div>
