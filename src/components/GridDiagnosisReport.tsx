@@ -408,14 +408,26 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                 
                 <div className="pt-10 pb-2 grid grid-cols-3 gap-x-2 gap-y-5">
                   <div>
-                    <div className="text-[10px] sm:text-xs font-bold text-[#b3774d] mb-1 leading-tight">单日平均振幅</div>
+                    <div className="text-[10px] sm:text-xs font-bold text-[#b3774d] mb-1 leading-tight flex items-center gap-1 group relative">
+                      单日平均振幅
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-40 cursor-help"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                      <div className="absolute bottom-full left-0 mb-1 w-44 p-2 bg-slate-800 text-white text-[10px] rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 pointer-events-none">
+                        (当日最高 - 当日最低) / 前收盘 的平均值。反映日常整体波动强度。
+                      </div>
+                    </div>
                     <div className="flex items-baseline gap-0.5 mb-1">
                       <span className="text-xl sm:text-2xl font-black text-[#f57c00]">{report.backtest.avgDailyAmplitude}</span>
                       <span className="text-xs font-bold text-[#f57c00]">%</span>
                     </div>
                   </div>
                   <div>
-                    <div className="text-[10px] sm:text-xs font-bold text-[#b3774d] mb-1 leading-tight">中位数振幅</div>
+                    <div className="text-[10px] sm:text-xs font-bold text-[#b3774d] mb-1 leading-tight flex items-center gap-1 group relative">
+                      中位数振幅
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-40 cursor-help"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                      <div className="absolute bottom-full left-0 mb-1 w-44 p-2 bg-slate-800 text-white text-[10px] rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 pointer-events-none">
+                        日振幅排序后的中间值。相比平均值更具代表性，排除了极端上涨/下跌的影响。
+                      </div>
+                    </div>
                     <div className="flex items-baseline gap-0.5 mb-1">
                       <span className="text-xl sm:text-2xl font-black text-[#f57c00]">{report.backtest.medianDailyAmplitude}</span>
                       <span className="text-xs font-bold text-[#f57c00]">%</span>
@@ -429,19 +441,42 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                     </div>
                   </div>
                   
-                  <div className="col-span-3 text-[10px] sm:text-xs text-[#b3774d]/70 -mt-2">
+                  <div className="col-span-3 text-[10px] sm:text-xs text-[#b3774d]/70 -mt-2 flex items-center gap-1 group relative">
                      建议网格大小为 <span className="font-bold">{report.backtest.recommendedGridSize}%</span>
+                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-40 cursor-help"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                     <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 pointer-events-none">
+                       基于历史中位数振幅计算，建议网格大小应能覆盖日内波动，同时兼顾成交频率。通常设为中位数振幅的1.2倍。
+                     </div>
                   </div>
                   
                   <div className="col-span-3 bg-white/50 p-3 rounded-lg border border-[#ffecb3]/50">
-                    <div className="text-[10px] sm:text-xs font-bold text-[#b3774d] mb-2 uppercase">价格运行区间</div>
+                    <div className="flex items-center gap-1 mb-2 group relative">
+                      <div className="text-[10px] sm:text-xs font-bold text-[#b3774d] uppercase">价格运行区间</div>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-40 cursor-help"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                      <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 pointer-events-none">
+                        展示所选周期内的历史极值。中间的橙色点代表【当前最新价格】处于该历史区间中的位置。
+                      </div>
+                    </div>
                     <div className="flex items-center justify-between mb-2">
                        <div className="text-center">
                          <div className="text-[9px] text-slate-400 font-bold">历史最低</div>
                          <div className="text-sm font-black text-[#f57c00]">{report.backtest.historicalMin}</div>
                        </div>
-                       <div className="h-0.5 flex-1 mx-4 bg-gradient-to-r from-[#ffd54f] to-[#ff8f00] rounded-full relative">
-                         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-white border-2 border-[#f57c00] rounded-full"></div>
+                       <div className="h-0.5 flex-1 mx-4 bg-[#ffecb3] rounded-full relative">
+                         {/* Highlight the recommended "safe range" if we want, but let's just do the dot for now */}
+                         <div className="absolute inset-0 bg-gradient-to-r from-[#ffd54f] to-[#ff8f00] rounded-full opacity-30"></div>
+                         {(() => {
+                           const min = report.backtest.historicalMin;
+                           const max = report.backtest.historicalMax;
+                           const cur = report.summary.currentPrice;
+                           const pos = Math.min(100, Math.max(0, ((cur - min) / (max - min)) * 100));
+                           return (
+                             <div 
+                               className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-white border-2 border-[#f57c00] rounded-full shadow-sm z-1"
+                               style={{ left: `${pos}%` }}
+                             ></div>
+                           );
+                         })()}
                        </div>
                        <div className="text-center">
                          <div className="text-[9px] text-slate-400 font-bold">历史最高</div>
