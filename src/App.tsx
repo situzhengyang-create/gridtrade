@@ -53,6 +53,7 @@ export default function App() {
   const [strategies, setStrategies] = useState<GridStrategy[]>([]);
   const [analyzedSymbols, setAnalyzedSymbols] = useState<string[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [summarySortMode, setSummarySortMode] = useState<'DEFAULT' | 'CONCLUSION'>('DEFAULT');
   
   const updateStrategy = (updated: GridStrategy) => {
     setStrategies(prev => prev.map(s => s.id === updated.id ? updated : s));
@@ -153,9 +154,15 @@ export default function App() {
     setAnalyzedSymbols(prev => Array.from(new Set([...prev, ...symbols])));
     
     // Process each symbol
+    let isFirstFetch = true;
     for (const symbol of symbols) {
       const canonicalSymbol = symbol.toLowerCase();
       if (analysisMap[canonicalSymbol]) continue;
+
+      if (!isFirstFetch) {
+        await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
+      }
+      isFirstFetch = false;
       
       setLoadingMap(prev => ({ ...prev, [canonicalSymbol]: true }));
       try {
@@ -325,8 +332,8 @@ export default function App() {
             <textarea 
               value={symbolsInput}
               onChange={(e) => setSymbolsInput(e.target.value)}
-              placeholder="输入代码：515980 sz000001 ..."
-              className="w-full h-40 p-8 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:bg-white outline-none transition-all text-2xl font-mono text-center placeholder:text-slate-200 placeholder:font-sans resize-none"
+              placeholder="输入证券代码，多个代码以空格分隔..."
+              className="w-full h-40 p-8 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:bg-white outline-none transition-all text-2xl font-mono text-center placeholder:text-slate-300 placeholder:font-sans resize-none"
             />
           </div>
           
@@ -411,7 +418,7 @@ export default function App() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto min-h-0">
           <table className="w-full text-left border-collapse table-fixed">
             <thead>
               <tr className="bg-slate-50/50 border-b border-slate-100">
@@ -436,13 +443,35 @@ export default function App() {
                 <th className="px-2 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">3Y</th>
                 <th className="px-2 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">2Y</th>
                 <th className="px-2 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">1Y</th>
-                <th className="px-6 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[100px]">结论</th>
+                <th 
+                  className="px-6 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[100px] cursor-pointer hover:text-slate-600 select-none group"
+                  onClick={() => setSummarySortMode(prev => prev === 'DEFAULT' ? 'CONCLUSION' : 'DEFAULT')}
+                >
+                  <div className="flex items-center justify-end gap-1">
+                    结论
+                    <svg className={`w-3 h-3 transition-transform ${summarySortMode === 'CONCLUSION' ? 'text-blue-500' : 'text-slate-300 group-hover:text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+                    </svg>
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {analyzedSymbols.map(symbol => {
-                const canonicalSymbol = symbol.toLowerCase();
-                const result = analysisMap[canonicalSymbol];
+              {(() => {
+                const getSortVal = (symbol: string) => {
+                  const result = analysisMap[symbol.toLowerCase()];
+                  if (!result || !result.reports) return 0;
+                  return result.reports.reduce((sum, r) => sum + (r.score || 0), 0);
+                };
+                
+                let displaySymbols = [...analyzedSymbols].reverse();
+                if (summarySortMode === 'CONCLUSION') {
+                  displaySymbols.sort((a, b) => getSortVal(b) - getSortVal(a));
+                }
+                
+                return displaySymbols.map(symbol => {
+                  const canonicalSymbol = symbol.toLowerCase();
+                  const result = analysisMap[canonicalSymbol];
                 const isLoading = loadingMap[canonicalSymbol];
                 const strategy = strategies.find(s => s.symbol?.toLowerCase() === canonicalSymbol);
                 const isSelected = selectedSymbols.includes(canonicalSymbol);
@@ -496,6 +525,19 @@ export default function App() {
                                    ))}
                                  </div>
                               )}
+                              {!isLoading && !result && !isDeleteMode && (
+                                 <button 
+                                   onClick={(e) => {
+                                     e.stopPropagation();
+                                     handleStartAnalysis([symbol]);
+                                   }}
+                                   className="p-1 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded transition-all flex items-center gap-1"
+                                   title="重试诊断"
+                                 >
+                                   <RefreshCw className="w-3 h-3" />
+                                   <span className="text-[9px] font-bold">失败重试</span>
+                                 </button>
+                              )}
                            </div>
                         </div>
                       </div>
@@ -525,7 +567,7 @@ export default function App() {
                     <td className="px-6 py-4 text-right">
                        {isLoading ? (
                          <div className="w-12 h-3 bg-slate-50 animate-pulse rounded ml-auto" />
-                       ) : result && (
+                       ) : result ? (
                          <span className={`text-[10px] font-black whitespace-nowrap transition-colors ${
                             result.statusText.includes('非常适合') ? 'text-emerald-500' :
                             result.statusText.includes('适合') ? 'text-blue-500' :
@@ -533,11 +575,16 @@ export default function App() {
                          }`}>
                            {result.statusText.replace('结论：', '').replace('比较适合网格交易', '适宜').replace('非常适合网格交易', '极佳').replace('适合网格交易', '适宜').replace('勉强适合网格交易', '普通').replace('不适合网格交易', '回避')}
                          </span>
+                       ) : (
+                         <span className="text-[10px] font-black text-slate-300">
+                           获取失败
+                         </span>
                        )}
                     </td>
                   </tr>
                 );
-              })}
+                });
+              })()}
             </tbody>
           </table>
 
@@ -545,8 +592,8 @@ export default function App() {
             <textarea 
               value={symbolsInput}
               onChange={(e) => setSymbolsInput(e.target.value)}
-              placeholder="继续添加代码：515980 sz000001 ..."
-              className="w-full h-24 p-4 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-300 outline-none transition-all font-mono placeholder:text-slate-300 placeholder:font-sans resize-none text-sm"
+              placeholder="继续添加证券代码，以空格分隔..."
+              className="w-full h-24 p-4 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-300 outline-none transition-all font-mono placeholder:text-slate-400 placeholder:font-sans resize-none text-sm"
             />
             <button 
               onClick={() => {
@@ -683,7 +730,7 @@ export default function App() {
           </motion.div>
         )}
         {view === AppView.SUMMARY && (
-          <motion.div key="summary" className="flex-1 flex flex-col" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+          <motion.div key="summary" className="flex-1 flex flex-col overflow-hidden" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
             {renderSummary()}
           </motion.div>
         )}
