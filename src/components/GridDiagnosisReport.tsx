@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { DiagnosisReport } from '../services/gridDiagnosticService';
+import { getEastMoneyUrl, getEastMoneyAppScheme } from '../lib/stockUtils';
 
 interface Props {
   reports: DiagnosisReport[];
@@ -121,6 +122,27 @@ const MetricCard = ({ item }: { item: any }) => {
 
 export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, onApplySuggestion }) => {
   const [activeTimeframe, setActiveTimeframe] = useState(-1); // -1: 对比, 0: 1Y, 1: 2Y, 2: 3Y
+  
+  const handleStockClick = (e: React.MouseEvent, sym: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    const appScheme = getEastMoneyAppScheme(sym);
+    const webUrl = getEastMoneyUrl(sym);
+    
+    if (isMobile) {
+      window.location.href = appScheme;
+      setTimeout(() => {
+        if (!document.hidden) {
+          window.open(webUrl, '_blank');
+        }
+      }, 2500);
+    } else {
+      window.open(webUrl, '_blank');
+    }
+  };
+
   const report = activeTimeframe === -1 ? null : reports[activeTimeframe];
   const [showScoreLogic, setShowScoreLogic] = useState(false);
   const timeframes = [

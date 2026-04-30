@@ -33,6 +33,7 @@ import { GridStrategy, GridLevel } from './types';
 import RichEditor from './components/RichEditor';
 import { fetchBacktestData, fetchDiagnosticData } from './services/marketData';
 import { analyzeGridSuitability, DiagnosisReport } from './services/gridDiagnosticService';
+import { getEastMoneyUrl, getEastMoneyAppScheme } from './lib/stockUtils';
 import { GridDiagnosisReport } from './components/GridDiagnosisReport';
 import { fetchTencentQuote } from './lib/jsonp';
 
@@ -164,6 +165,29 @@ export default function App() {
   , [strategies, activeId]);
 
   const refreshingRef = React.useRef<Set<string>>(new Set());
+  
+  const handleStockClick = (e: React.MouseEvent, symbol: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    const appScheme = getEastMoneyAppScheme(symbol);
+    const webUrl = getEastMoneyUrl(symbol);
+    
+    if (isMobile) {
+      // 在手机端，尝试唤起 App
+      window.location.href = appScheme;
+      // 作为一个兜底，如果几秒后还没跳走（说明没装 App），可以跳转到 Web 版
+      setTimeout(() => {
+        if (!document.hidden) {
+          window.open(webUrl, '_blank');
+        }
+      }, 2500);
+    } else {
+      // PC 端直接打开 Web 版
+      window.open(webUrl, '_blank');
+    }
+  };
 
   // 自动无感刷新历史报告
   useEffect(() => {
@@ -560,11 +584,27 @@ export default function App() {
                            <div className="text-sm font-black text-slate-900 leading-tight truncate">
                               {isLoading ? (
                                 <div className="w-24 h-4 bg-slate-100 animate-pulse rounded" />
-                              ) : result?.name || symbol}
+                              ) : (
+                                <a 
+                                  href={getEastMoneyUrl(symbol)}
+                                  onClick={(e) => handleStockClick(e, symbol)}
+                                  className="hover:text-blue-600 transition-colors"
+                                >
+                                  {result?.name || symbol}
+                                </a>
+                              )}
                            </div>
                            
                            <div className="flex items-center gap-3">
-                              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest tabular-nums leading-none">{symbol}</span>
+                              <a 
+                                href={getEastMoneyUrl(symbol)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => handleStockClick(e, symbol)}
+                                className="text-xs font-bold text-slate-400 uppercase tracking-widest tabular-nums leading-none hover:text-blue-500 hover:underline transition-all"
+                              >
+                                {symbol}
+                              </a>
                               {!isLoading && strategy && !isDeleteMode && (
                                  <div className="flex items-center gap-1">
                                    {[
@@ -737,11 +777,25 @@ export default function App() {
         
         <div className="flex flex-col min-w-0">
           <h2 className="text-sm font-bold text-slate-800 truncate select-none leading-tight">
-            {activeStrategy?.name}
+            <a 
+              href={getEastMoneyUrl(activeStrategy?.symbol || '')}
+              onClick={(e) => handleStockClick(e, activeStrategy?.symbol || '')}
+              className="hover:text-blue-600 transition-colors"
+            >
+              {activeStrategy?.name}
+            </a>
           </h2>
           {activeStrategy?.symbol && (
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">{activeStrategy.symbol}</span>
+              <a 
+                href={getEastMoneyUrl(activeStrategy.symbol)}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => handleStockClick(e, activeStrategy.symbol!)}
+                className="text-[10px] font-mono text-slate-500 uppercase tracking-wider hover:text-blue-500 hover:underline transition-all"
+              >
+                {activeStrategy.symbol}
+              </a>
               {activeStrategy.currentPrice && (
                 <div className="flex items-center gap-1.5 border-l border-slate-200 pl-2">
                   <span className="text-[10px] font-bold text-blue-600 tabular-nums">¥{activeStrategy.currentPrice}</span>
