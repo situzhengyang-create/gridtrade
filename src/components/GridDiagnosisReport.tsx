@@ -175,7 +175,7 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
               <div className="overflow-x-hidden">
                 <table className="w-full text-center table-fixed">
                     <thead>
-                      <tr className="text-[9px] text-slate-400 font-bold uppercase tracking-tight">
+                      <tr className="text-xs text-slate-400 font-bold uppercase tracking-tight">
                         <th className="pb-2 text-left w-[28%]">评估维度</th>
                         {timeframes.map((tf, idx) => (
                           <th key={idx} className="pb-2 px-0.5">{tf.label.replace('最近', '')}</th>
@@ -217,21 +217,21 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                         }
                       ].map((dim) => (
                         <tr key={dim.key}>
-                          <td className="py-3 text-[10px] font-bold text-slate-600 text-left align-top leading-tight">
+                          <td className="py-3 text-xs font-bold text-slate-600 text-left align-top leading-tight">
                             <div>{dim.label.split(' ')[0]}</div>
-                            <div className="text-[9px] text-slate-400 font-medium scale-90 origin-left mt-0.5">{dim.label.split(' ')[1]}</div>
+                            <div className="text-[10px] text-slate-400 font-medium mt-0.5">{dim.label.split(' ')[1]}</div>
                           </td>
                           {reports.map((r, idx) => (
                             <td key={idx} className="py-3 px-0.5 align-top">
                               <div className="flex flex-col items-center">
-                                <span className="inline-block w-full py-1 bg-slate-50 rounded-md text-[13px] font-black text-slate-800">
+                                <span className="inline-block w-full py-1 bg-slate-50 rounded-md text-base font-black text-slate-800">
                                   {r.detailedScores[dim.key as keyof typeof r.detailedScores]}
                                 </span>
-                                <div className="mt-2 space-y-1">
+                                <div className="mt-2 space-y-1.5">
                                   {dim.metrics.map((m, mIdx) => (
-                                    <div key={mIdx} className="text-[8px] text-slate-400 font-medium leading-tight flex flex-col items-center text-center">
-                                      <span className="opacity-60 scale-90 origin-bottom mb-0.5 break-words max-w-[50px]">{m.label}</span>
-                                      <span className="tabular-nums font-bold text-slate-600">{r.details[m.key as keyof typeof r.details]}{m.unit}</span>
+                                    <div key={mIdx} className="text-[10px] text-slate-500 font-medium leading-tight flex flex-col items-center text-center">
+                                      <span className="opacity-80 mb-0.5 break-words max-w-[60px]">{m.label}</span>
+                                      <span className="tabular-nums font-bold text-slate-700">{r.details[m.key as keyof typeof r.details]}{m.unit}</span>
                                     </div>
                                   ))}
                                 </div>
@@ -241,27 +241,27 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, on
                         </tr>
                       ))}
                       <tr className="bg-blue-50/40">
-                        <td className="py-3 text-[10px] font-black text-blue-700 text-left">总计 (/10)</td>
+                        <td className="py-3 text-xs font-black text-blue-700 text-left">总计 (/10)</td>
                         {reports.map((r, idx) => (
                           <td key={idx} className="py-3 px-0.5">
-                            <span className="text-base font-black text-blue-700">{r.score}</span>
+                            <span className="text-lg font-black text-blue-700">{r.score}</span>
                           </td>
                         ))}
                       </tr>
                       <tr>
-                        <td className="py-3 text-[10px] font-bold text-slate-600 text-left">适合程度</td>
+                        <td className="py-3 text-xs font-bold text-slate-600 text-left">适合程度</td>
                         {reports.map((r, idx) => (
                           <td key={idx} className="py-3 px-0.5">
-                            <span className={`text-[10px] font-black ${getRatingColor(r.rating).split(' ')[0]}`}>
+                            <span className={`text-xs font-black ${getRatingColor(r.rating).split(' ')[0]}`}>
                               {r.rating}
                             </span>
                           </td>
                         ))}
                       </tr>
                       <tr>
-                        <td className="py-3 text-[9px] font-bold text-slate-500 text-left leading-tight align-top">核心建议</td>
+                        <td className="py-3 text-[11px] font-bold text-slate-500 text-left leading-tight align-top">核心建议</td>
                         {reports.map((r, idx) => (
-                          <td key={idx} className="py-3 px-0.5 text-[9px] text-slate-600 leading-tight align-top">
+                          <td key={idx} className="py-3 px-0.5 text-[11px] text-slate-600 leading-tight align-top">
                             {r.suggestion}
                           </td>
                         ))}

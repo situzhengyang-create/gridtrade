@@ -466,7 +466,7 @@ export default function App() {
           <table className="w-full text-left border-collapse table-fixed">
             <thead>
               <tr className="bg-slate-50/50 border-b border-slate-100">
-                <th className="px-6 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[40%]">
+                <th className="px-6 py-3 text-xs font-black text-slate-400 uppercase tracking-widest w-[40%]">
                   <div className="flex items-center gap-4">
                     {isDeleteMode && (
                       <div 
@@ -484,11 +484,11 @@ export default function App() {
                     <span>证券</span>
                   </div>
                 </th>
-                <th className="px-2 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">3Y</th>
-                <th className="px-2 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">2Y</th>
-                <th className="px-2 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">1Y</th>
+                <th className="px-2 py-3 text-xs font-black text-slate-400 uppercase tracking-widest text-center">3Y</th>
+                <th className="px-2 py-3 text-xs font-black text-slate-400 uppercase tracking-widest text-center">2Y</th>
+                <th className="px-2 py-3 text-xs font-black text-slate-400 uppercase tracking-widest text-center">1Y</th>
                 <th 
-                  className="px-6 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[100px] cursor-pointer hover:text-slate-600 select-none group"
+                  className="px-6 py-3 text-xs font-black text-slate-400 uppercase tracking-widest text-right w-[100px] cursor-pointer hover:text-slate-600 select-none group"
                   onClick={() => setSummarySortMode(prev => prev === 'DEFAULT' ? 'CONCLUSION' : 'DEFAULT')}
                 >
                   <div className="flex items-center justify-end gap-1">
@@ -538,14 +538,14 @@ export default function App() {
                            </div>
                         )}
                         <div className="flex flex-col gap-1 min-w-0">
-                           <div className="text-[13px] font-black text-slate-900 leading-tight truncate">
+                           <div className="text-sm font-black text-slate-900 leading-tight truncate">
                               {isLoading ? (
                                 <div className="w-24 h-4 bg-slate-100 animate-pulse rounded" />
                               ) : result?.name || symbol}
                            </div>
                            
                            <div className="flex items-center gap-3">
-                              <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest tabular-nums leading-none">{symbol}</span>
+                              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest tabular-nums leading-none">{symbol}</span>
                               {!isLoading && strategy && !isDeleteMode && (
                                  <div className="flex items-center gap-1">
                                    {[
@@ -561,40 +561,27 @@ export default function App() {
                                          setView(btn.v);
                                          if (btn.v === AppView.GRID && !strategy.currentPrice) getLivePrice(strategy.symbol!, strategy.id);
                                        }}
-                                       className="p-1 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded transition-all"
+                                       className="p-1.5 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded transition-all"
                                        title={btn.title}
                                      >
-                                       <btn.icon className="w-3 h-3" />
+                                       <btn.icon className="w-3.5 h-3.5" />
                                      </button>
                                    ))}
                                  </div>
-                              )}
-                              {!isLoading && !result && !isDeleteMode && (
-                                 <button 
-                                   onClick={(e) => {
-                                     e.stopPropagation();
-                                     handleStartAnalysis([symbol]);
-                                   }}
-                                   className="p-1 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded transition-all flex items-center gap-1"
-                                   title="重试诊断"
-                                 >
-                                   <RefreshCw className="w-3 h-3" />
-                                   <span className="text-[9px] font-bold">失败重试</span>
-                                 </button>
                               )}
                            </div>
                         </div>
                       </div>
                     </td>
                     
-                    {[2, 1, 0].map(idx => {
+                    {isLoading || result ? [2, 1, 0].map(idx => {
                       const r = result?.reports?.[idx];
                       return (
                         <td key={idx} className="px-2 py-4 text-center">
                           {isLoading ? (
                             <div className="w-4 h-4 border border-slate-200 border-t-blue-500 rounded-full animate-spin mx-auto" />
                           ) : r ? (
-                            <span className={`text-xl font-black tabular-nums tracking-tighter transition-colors ${
+                            <span className={`text-2xl font-black tabular-nums tracking-tighter transition-colors ${
                               r.score >= 7 ? 'text-emerald-500' : 
                               r.score >= 5 ? 'text-blue-500' : 
                               'text-slate-300'
@@ -606,13 +593,29 @@ export default function App() {
                           )}
                         </td>
                       );
-                    })}
+                    }) : (
+                      <td colSpan={3} className="px-2 py-1 text-center">
+                        {!isDeleteMode && (
+                           <button 
+                             onClick={(e) => {
+                               e.stopPropagation();
+                               handleStartAnalysis([symbol]);
+                             }}
+                             className="mx-auto p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded transition-all flex items-center gap-1.5 justify-center"
+                             title="重试诊断"
+                           >
+                             <RefreshCw className="w-3.5 h-3.5" />
+                             <span className="text-[13px] font-bold leading-none tracking-widest whitespace-nowrap">失败重试</span>
+                           </button>
+                        )}
+                      </td>
+                    )}
 
                     <td className="px-6 py-4 text-right">
                        {isLoading ? (
                          <div className="w-12 h-3 bg-slate-50 animate-pulse rounded ml-auto" />
                        ) : result ? (
-                         <span className={`text-[10px] font-black whitespace-nowrap transition-colors ${
+                         <span className={`text-xs font-black whitespace-nowrap transition-colors ${
                             result.statusText.includes('非常适合') ? 'text-emerald-500' :
                             result.statusText.includes('适合') ? 'text-blue-500' :
                             result.statusText.includes('不适合') ? 'text-rose-500' : 'text-amber-500'
@@ -620,7 +623,7 @@ export default function App() {
                            {result.statusText.replace('结论：', '').replace('比较适合网格交易', '适宜').replace('非常适合网格交易', '极佳').replace('适合网格交易', '适宜').replace('勉强适合网格交易', '普通').replace('不适合网格交易', '回避')}
                          </span>
                        ) : (
-                         <span className="text-[10px] font-black text-slate-300">
+                         <span className="text-xs font-black text-slate-300">
                            获取失败
                          </span>
                        )}
