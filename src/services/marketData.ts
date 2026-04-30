@@ -15,7 +15,7 @@ export async function fetchBacktestData(symbol: string): Promise<BacktestResult 
     // 尝试两个市场的前缀: 0(深交所) 和 1(上交所)
     for (const prefix of ['0', '1']) {
       const secid = `${prefix}.${formattedSymbol}`;
-      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=7eea3edcaed734bea9cbfc24409ed989&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`;
+      const url = `/api/proxy/market-data?secid=${secid}&beg=${start}&end=${end}`;
       
       const response = await axios.get(url);
       if (response.data && response.data.data && response.data.data.klines && response.data.data.klines.length > 0) {
@@ -123,7 +123,7 @@ export async function fetchDiagnosticData(symbol: string): Promise<RawData[] | n
     // 尝试两个市场的前缀: 0(深交所) 和 1(上交所)
     for (const prefix of ['0', '1']) {
       const secid = `${prefix}.${formattedSymbol}`;
-      const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=7eea3edcaed734bea9cbfc24409ed989&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`;
+      const url = `/api/proxy/market-data?secid=${secid}&beg=${start}&end=${end}`;
       
       const response = await axios.get(url);
       if (response.data && response.data.data && response.data.data.klines && response.data.data.klines.length > 0) {

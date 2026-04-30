@@ -4,6 +4,7 @@ import { DiagnosisReport } from '../services/gridDiagnosticService';
 interface Props {
   reports: DiagnosisReport[];
   symbol: string;
+  name: string;
   onClose: () => void;
   onApplySuggestion?: (min: number, max: number, step: number) => void;
 }
@@ -119,8 +120,8 @@ const MetricCard = ({ item }: { item: any }) => {
   );
 };
 
-export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, onClose, onApplySuggestion }) => {
-  const [activeTimeframe, setActiveTimeframe] = useState(2); // -1: 对比, 0: 1Y, 1: 2Y, 2: 3Y
+export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, onClose, onApplySuggestion }) => {
+  const [activeTimeframe, setActiveTimeframe] = useState(-1); // -1: 对比, 0: 1Y, 1: 2Y, 2: 3Y
   const report = activeTimeframe === -1 ? null : reports[activeTimeframe];
   const [showScoreLogic, setShowScoreLogic] = useState(false);
   const timeframes = [
@@ -145,7 +146,7 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, onClose,
         {/* Sticky Header */}
         <div className="sticky top-0 bg-white/90 backdrop-blur-md z-20 px-5 py-3.5 border-b border-slate-100 flex justify-between items-center shrink-0">
           <div>
-            <h2 className="text-lg font-black text-slate-900 tracking-tight">网格交易诊断报告 ({symbol})</h2>
+            <h2 className="text-lg font-black text-slate-900 tracking-tight">{name}诊断报告</h2>
             <div className="flex gap-1 mt-2">
               <button 
                 onClick={() => setActiveTimeframe(-1)}
@@ -169,7 +170,7 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, onClose,
           </button>
         </div>
 
-        <div className="p-5 space-y-6">
+        <div className="p-5 pb-12 space-y-6">
           {activeTimeframe === -1 ? (
             <div className="space-y-6">
               <div className="bg-white border border-slate-100 p-5 rounded-2xl shadow-sm">
@@ -530,7 +531,7 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, onClose,
                   <div className="text-[10px] text-[#cc5e00]/70 font-medium tracking-wider">更新于 {new Date(report.summary.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
                 </div>
                 
-                <div className="pt-10 pb-1 grid grid-cols-2 gap-x-4 gap-y-5">
+                <div className="pt-10 pb-2 grid grid-cols-2 gap-x-4 gap-y-5">
                   <div>
                     <div className="text-[10px] font-bold text-[#b3774d] mb-1">单日平均 / 中位数振幅</div>
                     <div className="flex items-baseline gap-1 mb-1">

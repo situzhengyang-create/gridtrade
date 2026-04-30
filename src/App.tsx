@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -26,7 +21,12 @@ import {
   FileText,
   Activity,
   History,
-  Info
+  Info,
+  ChevronLeft,
+  ArrowRight,
+  AlertTriangle,
+  Lightbulb,
+  Github
 } from 'lucide-react';
 import axios from 'axios';
 import { GridStrategy, GridLevel } from './types';
@@ -35,163 +35,239 @@ import { fetchBacktestData, fetchDiagnosticData } from './services/marketData';
 import { analyzeGridSuitability, DiagnosisReport } from './services/gridDiagnosticService';
 import { GridDiagnosisReport } from './components/GridDiagnosisReport';
 
+enum AppView {
+  HOME = 'HOME',
+  SUMMARY = 'SUMMARY',
+  SETTING = 'SETTING',
+  GRID = 'GRID',
+  REPORT = 'REPORT'
+}
+
 export default function App() {
+  const [view, setView] = useState<AppView>(AppView.HOME);
+  const [symbolsInput, setSymbolsInput] = useState('');
+  const [analysisMap, setAnalysisMap] = useState<Record<string, { reports: DiagnosisReport[], name: string, statusText: string }>>({});
+  const [loadingMap, setLoadingMap] = useState<Record<string, boolean>>({});
+  
   const [strategies, setStrategies] = useState<GridStrategy[]>([]);
-  const [diagnosisReports, setDiagnosisReports] = useState<{reports: DiagnosisReport[], symbol: string} | null>(null);
-  const strategiesRef = React.useRef(strategies);
-  useEffect(() => {
-    strategiesRef.current = strategies;
-  }, [strategies]);
+  const [analyzedSymbols, setAnalyzedSymbols] = useState<string[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  
+  const updateStrategy = (updated: GridStrategy) => {
+    setStrategies(prev => prev.map(s => s.id === updated.id ? updated : s));
+  };
+
+  const toggleSelection = (symbol: string) => {
+    const canonical = symbol.toLowerCase();
+    setSelectedSymbols(prev => 
+      prev.includes(canonical) 
+        ? prev.filter(s => s !== canonical) 
+        : [...prev, canonical]
+    );
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedSymbols.length === 0) return;
+    
+    // Remove from all relevant states
+    setAnalyzedSymbols(prev => prev.filter(s => !selectedSymbols.includes(s.toLowerCase())));
+    setStrategies(prev => prev.filter(s => !s.symbol || !selectedSymbols.includes(s.symbol.toLowerCase())));
+    setAnalysisMap(prev => {
+      const next = { ...prev };
+      selectedSymbols.forEach(s => delete next[s]);
+      return next;
+    });
+    setLoadingMap(prev => {
+      const next = { ...prev };
+      selectedSymbols.forEach(s => delete next[s]);
+      return next;
+    });
+
+    // Reset states
+    setSelectedSymbols([]);
+    setIsDeleteMode(false);
+    setShowConfirmDelete(false);
+  };
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isDiagnosing, setIsDiagnosing] = useState(false);
-  const [isNotesFullScreen, setIsNotesFullScreen] = useState(false);
   const [isBacktesting, setIsBacktesting] = useState(false);
 
-  // 初始化本地存储
+  // New delete mode states
+  const [isDeleteMode, setIsDeleteMode] = useState(false);
+  const [selectedSymbols, setSelectedSymbols] = useState<string[]>([]);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+
+  // Initialize from local storage
   useEffect(() => {
     const saved = localStorage.getItem('grid_trader_strategies');
-    let loadedStrategies = [];
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          loadedStrategies = parsed;
+        if (Array.isArray(parsed)) {
+          setStrategies(parsed);
         }
       } catch (e) {
-        console.error('无法解析策略配置', e);
+        console.error('Failed to parse strategies', e);
       }
     }
-    
-    if (loadedStrategies.length === 0) {
-      const defaultStrategy: GridStrategy = {
-        id: crypto.randomUUID(),
-        name: '新网格策略',
-        initialPrice: undefined,
-        gridInterval: 3,
-        initialAmount: 3000,
-        stepValue: 0,
-        stepType: 'percent',
-        commissionRate: 0.005,
-        symbol: '515980',
-        securityName: '',
-        currentPrice: undefined,
-        lastPriceTime: undefined,
-        notes: '',
-        placedLevels: [],
-        triggeredLevels: [],
-        createdAt: Date.now()
-      };
-      loadedStrategies = [defaultStrategy];
-    }
-    
-    setStrategies(loadedStrategies);
-    setActiveId(loadedStrategies[0].id);
   }, []);
 
-  // 保存到本地存储
+  // Save to local storage
   useEffect(() => {
     localStorage.setItem('grid_trader_strategies', JSON.stringify(strategies));
   }, [strategies]);
+
+  // 切换到设置视图或切换策略时自动刷新价格
+  useEffect(() => {
+    if (view === AppView.SETTING && activeStrategy?.symbol) {
+      getLivePrice(activeStrategy.symbol, activeStrategy.id);
+    }
+  }, [view, activeId]);
 
   const activeStrategy = useMemo(() => 
     strategies.find(s => s.id === activeId) || null
   , [strategies, activeId]);
 
-  const addStrategy = () => {
-    const newStrategy: GridStrategy = {
-      id: crypto.randomUUID(),
-      name: '新网格策略',
-      initialPrice: undefined,
-      gridInterval: 3,
-      initialAmount: 3000,
-      stepValue: 0,
-      stepType: 'percent',
-      commissionRate: 0.005,
-      symbol: '515980',
-      securityName: '',
-      currentPrice: undefined,
-      lastPriceTime: undefined,
-      notes: '',
-      placedLevels: [],
-      triggeredLevels: [],
-      createdAt: Date.now()
-    };
-    setStrategies([...strategies, newStrategy]);
-    setActiveId(newStrategy.id);
-    setIsEditing(true);
-    setIsSidebarOpen(false);
+  const cleanSymbols = (input: string): string[] => {
+    // Regex to match stock codes: 6 digits, or sh/sz followed by 6 digits
+    const regex = /(?:sh|sz)?\d{6}/gi;
+    const matches = input.match(regex) || [];
+    // Remove duplicates
+    return Array.from(new Set(matches.map(s => s.toLowerCase())));
   };
 
-  const deleteStrategy = (id: string) => {
-    if (!confirm('确定要删除这个策略吗？')) return;
-    const nextArr = strategies.filter(s => s.id !== id);
-    setStrategies(nextArr);
-    if (activeId === id) {
-      setActiveId(nextArr.length > 0 ? nextArr[0].id : null);
+  const handleStartAnalysis = async () => {
+    const symbols = cleanSymbols(symbolsInput);
+    if (symbols.length === 0) {
+      alert('请在输入框中输入证券代码');
+      return;
+    }
+
+    setView(AppView.SUMMARY);
+    setAnalyzedSymbols(prev => Array.from(new Set([...prev, ...symbols])));
+    
+    // Process each symbol
+    for (const symbol of symbols) {
+      const canonicalSymbol = symbol.toLowerCase();
+      if (analysisMap[canonicalSymbol]) continue;
+      
+      setLoadingMap(prev => ({ ...prev, [canonicalSymbol]: true }));
+      try {
+        const data = await fetchDiagnosticData(canonicalSymbol);
+        if (data && data.length >= 60) {
+          const report1Y = analyzeGridSuitability(data.slice(-250));
+          const report2Y = analyzeGridSuitability(data.slice(-500));
+          const report3Y = analyzeGridSuitability(data);
+          const reports = [report1Y, report2Y, report3Y];
+          
+          // Get name
+          let name = canonicalSymbol;
+          try {
+            const formattedSymbol = canonicalSymbol.startsWith('sh') || canonicalSymbol.startsWith('sz') 
+              ? canonicalSymbol 
+              : (canonicalSymbol.startsWith('6') || canonicalSymbol.startsWith('5') ? 'sh' + canonicalSymbol : 'sz' + canonicalSymbol);
+            const resp = await axios.get(`/api/proxy/tencent-quote?q=s_${formattedSymbol}`);
+            const match = resp.data.match(/="(.*)"/);
+            if (match && match[1]) {
+              name = match[1].split('~')[1];
+            }
+          } catch(e) {}
+
+          setAnalysisMap(prev => ({
+            ...prev,
+            [canonicalSymbol]: { reports, name, statusText: report3Y.rating }
+          }));
+
+          // Automatically create strategy if not exists
+          setStrategies(prev => {
+            const exists = prev.find(s => s.symbol?.toLowerCase() === canonicalSymbol);
+            if (!exists) {
+              const newStrategy: GridStrategy = {
+                id: crypto.randomUUID(),
+                name: name,
+                symbol: canonicalSymbol,
+                gridInterval: report3Y.backtest.recommendedGridSize || 3,
+                initialAmount: 3000,
+                stepValue: 0,
+                stepType: 'percent',
+                commissionRate: 0.005,
+                createdAt: Date.now(),
+                notes: '',
+                placedLevels: [],
+                triggeredLevels: []
+              };
+              return [...prev, newStrategy];
+            }
+            return prev;
+          });
+        }
+      } catch (e) {
+        console.error(`Analysis failed for ${canonicalSymbol}`, e);
+      } finally {
+        setLoadingMap(prev => ({ ...prev, [canonicalSymbol]: false }));
+      }
     }
   };
 
-  const updateStrategy = (updated: GridStrategy) => {
-    setStrategies(strategies.map(s => s.id === updated.id ? updated : s));
+  const getLivePrice = async (symbol: string, targetId: string) => {
+    setIsRefreshing(true);
+    try {
+      const formattedSymbol = symbol.toLowerCase().startsWith('sh') || symbol.toLowerCase().startsWith('sz') 
+        ? symbol.toLowerCase() 
+        : (symbol.startsWith('6') || symbol.startsWith('5') ? 'sh' + symbol : 'sz' + symbol);
+      
+      const response = await axios.get(`/api/proxy/tencent-quote?q=s_${formattedSymbol}`);
+      const text = response.data;
+      const match = text.match(/="(.*)"/);
+      if (match && match[1]) {
+        const parts = match[1].split('~');
+        if (parts.length > 3) {
+          const name = parts[1];
+          const price = parseFloat(parts[3]);
+          setStrategies(prev => prev.map(s => s.id === targetId ? {
+            ...s,
+            securityName: name,
+            currentPrice: price,
+            initialPrice: s.initialPrice || price,
+            lastPriceTime: Date.now()
+          } : s));
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const calculateGrid = (strategy: GridStrategy): GridLevel[] => {
     const levels: GridLevel[] = [];
-    const { 
-      initialPrice, 
-      gridInterval = 0, 
-      initialAmount = 0, 
-      stepValue = 0, 
-      stepType, 
-      commissionRate = 0 
-    } = strategy;
-    
-    if (initialPrice === undefined || initialPrice <= 0) return [];
+    const { initialPrice, gridInterval = 0, initialAmount = 0, stepValue = 0, stepType, commissionRate = 0 } = strategy;
+    if (!initialPrice || initialPrice <= 0) return [];
 
     const rate = commissionRate / 100;
-    
     const suggestedBottom = strategy.backtest?.suggestedBottom;
-
     let cumulativeAmount = 0;
 
     for (let i = 0; i >= -100; i--) {
-      // 价格计算：采用等距 (1 + 间距 * 层数)
       const price = initialPrice * (1 + (gridInterval / 100) * i);
       const percentFromInitial = ((price / initialPrice) - 1) * 100;
-      
-      // Stop condition based on dynamically suggested bottom or fallback to 20 grids
-      if (suggestedBottom) {
-        if (i < 0 && price < suggestedBottom) break;
-      } else {
-        if (i < -20) break;
-      }
+      if (suggestedBottom ? (i < 0 && price < suggestedBottom) : (i < -20)) break;
       
       let amount = initialAmount;
       if (i !== 0) {
         const absI = Math.abs(i);
-        if (stepType === 'percent') {
-          amount = initialAmount * Math.pow(1 + stepValue / 100, absI);
-        } else {
-          amount = initialAmount + (stepValue * absI);
-        }
+        amount = stepType === 'percent' ? initialAmount * Math.pow(1 + stepValue / 100, absI) : initialAmount + (stepValue * absI);
       }
-
       cumulativeAmount += amount;
 
       let netProfit = 0;
       if (i < 0) {
-        // 先买后卖逻辑：在当前层级(i)买入，在上一层级(i+1)卖出
         const buyPrice = price;
         const sellPrice = initialPrice * (1 + (gridInterval / 100) * (i + 1));
-        const qty = amount / buyPrice; // 买入数量
-        
-        const buyFee = amount * rate; // 买入手续费
-        const sellRev = qty * sellPrice; // 卖出销售额
-        const sellFee = sellRev * rate; // 卖出手续费
-        
+        const qty = amount / buyPrice;
+        const buyFee = amount * rate;
+        const sellRev = qty * sellPrice;
+        const sellFee = sellRev * rate;
         netProfit = (sellRev - amount) - (buyFee + sellFee);
       }
 
@@ -205,284 +281,375 @@ export default function App() {
         percentFromInitial: Number(percentFromInitial.toFixed(2))
       });
     }
-    
     return levels;
   };
 
   const gridData = useMemo(() => activeStrategy ? calculateGrid(activeStrategy) : [], [activeStrategy]);
 
-  // 自动刷新逻辑：在中国大陆交易期间每5分钟获取一次所有有代码的策略最新价
-  useEffect(() => {
-    const checkAndRefresh = async () => {
-      const now = new Date();
-      const day = now.getDay();
-      const hour = now.getHours();
-      const minute = now.getMinutes();
-      
-      // A股交易时间：周一至周五 9:15-11:30, 13:00-15:00
-      const isWeekday = day >= 1 && day <= 5;
-      const isMorning = (hour === 9 && minute >= 15) || (hour === 10) || (hour === 11 && minute <= 30);
-      const isAfternoon = (hour >= 13 && hour < 15);
-      
-      if (isWeekday && (isMorning || isAfternoon)) {
-        // 刷新所有包含代码的策略
-        for (const s of strategiesRef.current) {
-          if (s.symbol) {
-            await getLivePrice(s.symbol, s.id);
-          }
-        }
-      }
-    };
-
-    // 初始执行一次
-    checkAndRefresh();
-
-    // 每 5 分钟执行一次
-    const interval = setInterval(checkAndRefresh, 300000);
-    return () => clearInterval(interval);
-  }, [strategies.length]); // 仅在策略数量变化时重新绑定定时器，内部逻辑会循环所有策略
-
-  const getLivePrice = async (symbol: string, targetId?: string) => {
-    if (!symbol) return;
-    const effectId = targetId || activeId;
-    if (!effectId) return;
-
-    setIsRefreshing(true);
-    try {
-      const formattedSymbol = symbol.toLowerCase().startsWith('sh') || symbol.toLowerCase().startsWith('sz') 
-        ? symbol.toLowerCase() 
-        : (symbol.startsWith('6') || symbol.startsWith('5') ? 'sh' + symbol : 'sz' + symbol);
-      
-      const response = await axios.get(`https://qt.gtimg.cn/q=s_${formattedSymbol}`);
-      const text = response.data;
-      
-      const match = text.match(/="(.*)"/);
-      if (match && match[1]) {
-        const parts = match[1].split('~');
-        if (parts.length > 3) {
-          const name = parts[1];
-          const price = parseFloat(parts[3]);
-          if (!isNaN(price)) {
-            setStrategies(prev => prev.map(s => {
-              if (s.id !== effectId) return s;
-              
-              let nextName = s.name;
-              if (!nextName || nextName.startsWith('新网格策略') || nextName.startsWith('新策略')) {
-                nextName = name;
-              }
-
-              const shouldUpdateInitialPrice = !s.initialPrice || s.initialPrice === 0;
-
-              return {
-                ...s,
-                securityName: name,
-                name: nextName,
-                currentPrice: price,
-                initialPrice: shouldUpdateInitialPrice ? price : s.initialPrice,
-                lastPriceTime: Date.now()
-              };
-            }));
-          }
-        }
-      }
-    } catch (error) {
-      console.error('获取价格失败:', error);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
-  const handleBacktest = async (strategy: GridStrategy) => {
-    if (!strategy.symbol) {
-      alert("请输入证券代码");
-      return;
-    }
-    setIsBacktesting(true);
-    const result = await fetchBacktestData(strategy.symbol);
-    setIsBacktesting(false);
-    if (result) {
-      updateStrategy({ ...strategy, backtest: result });
-      alert("回测数据获取成功！已经生成历史建议");
-    } else {
-      alert("未能获取到该代码的回测数据，请检查代码是否正确（例如 A 股股票 600519，或者 sz000001）");
-    }
-  };
-
-  const Sidebar = () => (
-    <div className="flex flex-col h-full bg-white">
-      <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-900 text-white">
-        <div className="flex items-center gap-2">
-          <Grid3X3 className="w-5 h-5 text-blue-400" />
-          <h1 className="text-lg font-bold tracking-tight">GridTrade</h1>
-        </div>
-        <button 
-          onClick={() => setIsSidebarOpen(false)}
-          className="p-1.5 md:hidden hover:bg-slate-800 rounded-lg transition-colors text-white/50"
-        >
-          <X className="w-5 h-5" />
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-3 space-y-2">
-        {strategies.length === 0 && (
-          <div className="text-center py-10">
-            <Calculator className="w-10 h-10 text-slate-200 mx-auto mb-2" />
-            <p className="text-slate-400 text-xs text-balance">暂无策略，请点击下方进行新增</p>
+  const renderHome = () => (
+    <div className="flex-1 flex flex-col items-center justify-center p-6 bg-white overflow-y-auto">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="w-full max-w-xl space-y-12"
+      >
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200">
+             <Activity className="w-8 h-8 text-white" />
           </div>
-        )}
-        {strategies.map(s => (
-          <div 
-            key={s.id}
-            onClick={() => {
-              setActiveId(s.id);
-              setIsSidebarOpen(false);
-            }}
-            className={`
-              group p-3 rounded-lg cursor-pointer transition-all border
-              ${activeId === s.id 
-                ? 'bg-blue-50 border-blue-200 shadow-sm' 
-                : 'bg-white border-slate-100 hover:border-slate-200'}
-            `}
-          >
-            <div className="flex justify-between items-start">
-              <div className="flex-1 min-w-0">
-                <h3 className={`text-sm font-bold truncate ${activeId === s.id ? 'text-blue-700' : 'text-slate-700'}`}>
-                  {s.name}
-                </h3>
-                <p className="text-[10px] text-slate-400 mt-0.5">
-                  基准: {s.initialPrice ?? '--'} | {s.gridInterval}%
-                </p>
-              </div>
-              <button 
-                onClick={(e) => { e.stopPropagation(); deleteStrategy(s.id); }}
-                className="p-1 text-slate-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+          <div className="text-center">
+            <h1 className="text-4xl font-black text-slate-900 tracking-tighter uppercase">GRIDTRADE</h1>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="relative group">
+            <textarea 
+              value={symbolsInput}
+              onChange={(e) => setSymbolsInput(e.target.value)}
+              placeholder="输入代码：515980 sz000001 ..."
+              className="w-full h-40 p-8 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:bg-white outline-none transition-all text-2xl font-mono text-center placeholder:text-slate-200 placeholder:font-sans resize-none"
+            />
+          </div>
+          
+          <div className="space-y-4">
+            <button 
+              onClick={handleStartAnalysis}
+              className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl shadow-xl shadow-blue-100 transition-all active:scale-[0.98] flex items-center justify-center gap-3 text-lg"
+            >
+              网格交易诊断
+            </button>
+            <div className="flex justify-center">
+              <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1.5 opacity-80 hover:opacity-100 transition-opacity">
+                <History className="w-3 h-3" />
+                所有诊断结果与参数仅保存于本地浏览器缓存
+              </span>
             </div>
           </div>
-        ))}
-      </div>
+        </div>
 
-      <div className="p-3 border-t border-slate-100 bg-slate-50">
-        <button 
-          onClick={addStrategy}
-          className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition-all shadow-lg shadow-blue-100 active:scale-95"
-          title="添加策略"
-        >
-          <Plus className="w-4 h-4" />
-          <span>添加新策略</span>
-        </button>
-      </div>
+        <p className="text-center text-[11px] text-slate-400 font-medium">支持 A股、港股、美股标的识别与清洗</p>
+      </motion.div>
     </div>
   );
 
-  return (
-    <div className="flex flex-col md:flex-row h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
-      {/* 桌面端侧边栏 */}
-      <div className="hidden md:block w-64 border-r border-slate-200 shrink-0 shadow-sm h-full">
-        <Sidebar />
-      </div>
+  const renderSummary = () => {
+    return (
+      <div className="flex-1 flex flex-col bg-white overflow-hidden relative">
+        <header className="px-6 py-4 flex items-center justify-between bg-white border-b border-slate-100 z-50 shrink-0">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => {
+                if (isDeleteMode) {
+                  setIsDeleteMode(false);
+                  setSelectedSymbols([]);
+                } else {
+                  setView(AppView.HOME);
+                }
+              }}
+              className="w-8 h-8 flex items-center justify-center hover:bg-slate-50 rounded-full transition-all text-slate-400"
+            >
+              {isDeleteMode ? <X className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+            </button>
+            <h2 className="text-sm font-black text-slate-900 uppercase tracking-widest">
+              {isDeleteMode ? `已选择 ${selectedSymbols.length} 个标的` : '诊断看板'}
+            </h2>
+          </div>
+          <div className="flex items-center gap-3">
+             {!isDeleteMode ? (
+               <>
+                 <div className="flex items-center gap-2 text-[10px] font-black text-slate-300">
+                    <Activity className="w-3 h-3 text-blue-500" />
+                    <span className="tabular-nums">{analyzedSymbols.length} 标的</span>
+                 </div>
+                 <button 
+                   onClick={() => setIsDeleteMode(true)}
+                   className="p-2 text-slate-400 hover:text-rose-500 transition-colors"
+                   title="进入删除模式"
+                 >
+                   <Trash2 className="w-4 h-4" />
+                 </button>
+               </>
+             ) : (
+               <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => {
+                      setIsDeleteMode(false);
+                      setSelectedSymbols([]);
+                    }}
+                    className="px-4 py-1.5 text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest transition-all"
+                  >
+                    取消
+                  </button>
+                  <button 
+                    disabled={selectedSymbols.length === 0}
+                    onClick={() => setShowConfirmDelete(true)}
+                    className="px-4 py-1.5 bg-rose-500 text-white text-[10px] font-black rounded-lg uppercase tracking-widest shadow-lg shadow-rose-100 transition-all active:scale-95 disabled:opacity-30 disabled:shadow-none"
+                  >
+                    删除
+                  </button>
+               </div>
+             )}
+          </div>
+        </header>
 
-      {/* 移动端侧边栏抽屉 */}
-      <AnimatePresence>
-        {isSidebarOpen && (
-          <>
+        <div className="flex-1 overflow-y-auto">
+          <table className="w-full text-left border-collapse table-fixed">
+            <thead>
+              <tr className="bg-slate-50/50 border-b border-slate-100">
+                <th className="px-6 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[40%]">
+                  <div className="flex items-center gap-4">
+                    {isDeleteMode && (
+                      <div 
+                        onClick={() => {
+                          if (selectedSymbols.length === analyzedSymbols.length) setSelectedSymbols([]);
+                          else setSelectedSymbols(analyzedSymbols.map(s => s.toLowerCase()));
+                        }}
+                        className={`w-4 h-4 rounded border flex items-center justify-center transition-all cursor-pointer ${
+                          selectedSymbols.length === analyzedSymbols.length ? 'bg-blue-600 border-blue-600' : 'bg-white border-slate-300'
+                        }`}
+                      >
+                        {selectedSymbols.length === analyzedSymbols.length && <Check className="w-2.5 h-2.5 text-white stroke-[4]" />}
+                      </div>
+                    )}
+                    <span>证券</span>
+                  </div>
+                </th>
+                <th className="px-2 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">3Y</th>
+                <th className="px-2 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">2Y</th>
+                <th className="px-2 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">1Y</th>
+                <th className="px-6 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[100px]">结论</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {analyzedSymbols.map(symbol => {
+                const canonicalSymbol = symbol.toLowerCase();
+                const result = analysisMap[canonicalSymbol];
+                const isLoading = loadingMap[canonicalSymbol];
+                const strategy = strategies.find(s => s.symbol?.toLowerCase() === canonicalSymbol);
+                const isSelected = selectedSymbols.includes(canonicalSymbol);
+                
+                return (
+                  <tr 
+                    key={symbol} 
+                    onClick={() => isDeleteMode && toggleSelection(symbol)}
+                    className={`group transition-colors ${
+                      isDeleteMode ? 'cursor-pointer' : 'hover:bg-slate-50/30'
+                    } ${isSelected ? 'bg-rose-50/30' : ''}`}
+                  >
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-4">
+                        {isDeleteMode && (
+                           <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all shrink-0 ${
+                             isSelected ? 'bg-rose-500 border-rose-500' : 'bg-white border-slate-300'
+                           }`}>
+                             {isSelected && <Check className="w-2.5 h-2.5 text-white stroke-[4]" />}
+                           </div>
+                        )}
+                        <div className="flex flex-col gap-1 min-w-0">
+                           <div className="text-[13px] font-black text-slate-900 leading-tight truncate">
+                              {isLoading ? (
+                                <div className="w-24 h-4 bg-slate-100 animate-pulse rounded" />
+                              ) : result?.name || symbol}
+                           </div>
+                           
+                           <div className="flex items-center gap-3">
+                              <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest tabular-nums leading-none">{symbol}</span>
+                              {!isLoading && strategy && !isDeleteMode && (
+                                 <div className="flex items-center gap-1">
+                                   {[
+                                     { icon: Settings2, v: AppView.SETTING, title: '设置' },
+                                     { icon: Grid3X3, v: AppView.GRID, title: '网格' },
+                                     { icon: FileText, v: AppView.REPORT, title: '报告' }
+                                   ].map((btn, i) => (
+                                     <button 
+                                       key={i}
+                                       onClick={(e) => {
+                                         e.stopPropagation();
+                                         setActiveId(strategy.id);
+                                         setView(btn.v);
+                                         if (btn.v === AppView.GRID && !strategy.currentPrice) getLivePrice(strategy.symbol!, strategy.id);
+                                       }}
+                                       className="p-1 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded transition-all"
+                                       title={btn.title}
+                                     >
+                                       <btn.icon className="w-3 h-3" />
+                                     </button>
+                                   ))}
+                                 </div>
+                              )}
+                           </div>
+                        </div>
+                      </div>
+                    </td>
+                    
+                    {[2, 1, 0].map(idx => {
+                      const r = result?.reports?.[idx];
+                      return (
+                        <td key={idx} className="px-2 py-4 text-center">
+                          {isLoading ? (
+                            <div className="w-4 h-4 border border-slate-200 border-t-blue-500 rounded-full animate-spin mx-auto" />
+                          ) : r ? (
+                            <span className={`text-xl font-black tabular-nums tracking-tighter transition-colors ${
+                              r.score >= 7 ? 'text-emerald-500' : 
+                              r.score >= 5 ? 'text-blue-500' : 
+                              'text-slate-300'
+                            }`}>
+                              {r.score}
+                            </span>
+                          ) : (
+                            <span className="text-slate-200 text-xs">-</span>
+                          )}
+                        </td>
+                      );
+                    })}
+
+                    <td className="px-6 py-4 text-right">
+                       {isLoading ? (
+                         <div className="w-12 h-3 bg-slate-50 animate-pulse rounded ml-auto" />
+                       ) : result && (
+                         <span className={`text-[10px] font-black whitespace-nowrap transition-colors ${
+                            result.statusText.includes('非常适合') ? 'text-emerald-500' :
+                            result.statusText.includes('适合') ? 'text-blue-500' :
+                            result.statusText.includes('不适合') ? 'text-rose-500' : 'text-amber-500'
+                         }`}>
+                           {result.statusText.replace('结论：', '').replace('比较适合网格交易', '适宜').replace('非常适合网格交易', '极佳').replace('适合网格交易', '适宜').replace('勉强适合网格交易', '普通').replace('不适合网格交易', '回避')}
+                         </span>
+                       )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Confirmation Modal */}
+        <AnimatePresence>
+          {showConfirmDelete && (
             <motion.div 
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0.5 }}
+              animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsSidebarOpen(false)}
-              className="fixed inset-0 bg-black z-40 md:hidden"
-            />
-            <motion.div 
-              initial={{ x: '-100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '-100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed inset-y-0 left-0 w-3/4 max-w-xs z-50 md:hidden shadow-2xl"
+              className="absolute inset-0 bg-white/80 backdrop-blur-sm z-[100] flex items-center justify-center p-6"
             >
-              <Sidebar />
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* 主界面 */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {diagnosisReports && (
-          <GridDiagnosisReport 
-            reports={diagnosisReports.reports} 
-            symbol={diagnosisReports.symbol} 
-            onClose={() => setDiagnosisReports(null)} 
-            onApplySuggestion={(min, max, step) => {
-              updateStrategy({
-                ...activeStrategy,
-                gridInterval: step,
-              });
-              setIsEditing(true);
-            }}
-          />
-        )}
-        {activeStrategy ? (
-          <>
-            {/* 紧凑顶栏 */}
-            <div className="bg-white border-b border-slate-200 p-2 md:p-2.5 px-3 md:px-5 flex items-center justify-between z-30 shrink-0">
-              <div className="flex items-center gap-2 overflow-hidden">
-                <button 
-                  onClick={() => setIsSidebarOpen(true)}
-                  className="md:hidden p-1.5 -ml-1 text-slate-500 hover:bg-slate-100 rounded-lg"
-                >
-                  <Menu className="w-5 h-5" />
-                </button>
-                <div className="flex flex-col min-w-0">
-                  <h2 className="text-sm font-bold text-slate-800 truncate select-none">{activeStrategy.name}</h2>
-                  {activeStrategy.symbol && (
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[10px] font-mono text-slate-500 uppercase">{activeStrategy.symbol}</span>
-                      {activeStrategy.currentPrice && (
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-bold text-blue-600">¥{activeStrategy.currentPrice}</span>
-                          <span className="text-[9px] text-slate-400">
-                            {new Date(activeStrategy.lastPriceTime || 0).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                          </span>
-                        </div>
-                      )}
-                      <button 
-                        onClick={() => getLivePrice(activeStrategy.symbol || '')}
-                        disabled={isRefreshing}
-                        className="p-0.5 text-slate-400 hover:text-blue-600 disabled:opacity-30 transition-colors"
-                        title="刷新价格"
-                      >
-                        <RefreshCw className={`w-2.5 h-2.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                      </button>
-                    </div>
-                  )}
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white p-8 rounded-[32px] shadow-2xl border border-slate-100 max-w-xs w-full text-center space-y-6"
+              >
+                <div className="w-16 h-16 bg-rose-50 rounded-2xl flex items-center justify-center mx-auto">
+                   <AlertTriangle className="w-8 h-8 text-rose-500" />
                 </div>
-              </div>
-              
-              <div className="flex bg-slate-100 rounded-lg p-0.5 shrink-0">
-                <button 
-                  onClick={() => setIsEditing(false)}
-                  className={`p-1.5 px-2 rounded-md transition-all flex items-center justify-center ${!isEditing ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}
-                  title="预览网格"
-                >
-                  <TableIcon className="w-4 h-4" />
-                </button>
-                <button 
-                  onClick={() => setIsEditing(true)}
-                  className={`p-1.5 px-2 rounded-md transition-all flex items-center justify-center ${isEditing ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}
-                  title="策略设置"
-                >
-                  <Settings2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
+                <div className="space-y-2">
+                  <h3 className="text-lg font-black text-slate-900">确认删除</h3>
+                  <p className="text-xs font-medium text-slate-400">确定要从诊断清单中移除选中的 {selectedSymbols.length} 个标的吗？此操作不可撤销。</p>
+                </div>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setShowConfirmDelete(false)}
+                    className="flex-1 py-3 text-[10px] font-black text-slate-400 hover:bg-slate-50 rounded-xl transition-all uppercase tracking-widest"
+                  >
+                    取消
+                  </button>
+                  <button 
+                    onClick={handleDeleteSelected}
+                    className="flex-1 py-3 bg-rose-500 text-white text-[10px] font-black rounded-xl uppercase tracking-widest shadow-lg shadow-rose-100 transition-all active:scale-95"
+                  >
+                    立即删除
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  };
 
-            <div className="flex-1 overflow-y-auto bg-slate-50">
-              <div className="p-1 md:p-4 max-w-5xl mx-auto">
-                <AnimatePresence mode="wait">
-                  {isEditing ? (
+  const renderDetailHeader = () => (
+    <header className="px-5 py-3 border-b border-slate-200 flex items-center justify-between bg-white/90 backdrop-blur-md sticky top-0 z-50 shrink-0">
+      <div className="flex items-center gap-3 min-w-0">
+        <button 
+          onClick={() => setView(AppView.SUMMARY)}
+          className="w-8 h-8 flex items-center justify-center hover:bg-slate-100 rounded-lg transition-all text-slate-900 border border-slate-200 shrink-0"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        
+        <div className="flex flex-col min-w-0">
+          <h2 className="text-sm font-bold text-slate-800 truncate select-none leading-tight">
+            {activeStrategy?.name}
+          </h2>
+          {activeStrategy?.symbol && (
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">{activeStrategy.symbol}</span>
+              {activeStrategy.currentPrice && (
+                <div className="flex items-center gap-1.5 border-l border-slate-200 pl-2">
+                  <span className="text-[10px] font-bold text-blue-600 tabular-nums">¥{activeStrategy.currentPrice}</span>
+                  <span className="text-[9px] text-slate-400 tabular-nums">
+                    {new Date(activeStrategy.lastPriceTime || 0).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </span>
+                </div>
+              )}
+              <button 
+                onClick={() => getLivePrice(activeStrategy.symbol || '', activeStrategy.id)}
+                disabled={isRefreshing}
+                className="p-1 text-slate-400 hover:text-blue-600 disabled:opacity-30 transition-colors"
+                title="刷新价格"
+              >
+                <RefreshCw className={`w-2.5 h-2.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+      
+      <div className="flex bg-slate-100 rounded-lg p-0.5 gap-0.5 shrink-0 ml-2">
+        {[
+          { v: AppView.SETTING, label: '设置', icon: Settings2, title: '策略设置' },
+          { v: AppView.GRID, label: '网格', icon: TableIcon, title: '预览网格' },
+          { v: AppView.REPORT, label: '报告', icon: FileText, title: '诊断报告' },
+        ].map(item => (
+          <button 
+            key={item.v}
+            onClick={() => setView(item.v)}
+            title={item.title}
+            className={`p-1.5 px-3 rounded-md transition-all flex items-center justify-center gap-1.5 ${
+              view === item.v 
+                ? 'bg-white shadow-sm text-blue-600' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <item.icon className="w-3.5 h-3.5" />
+            <span className="text-[10px] font-bold hidden sm:inline">{item.label}</span>
+          </button>
+        ))}
+      </div>
+    </header>
+  );
+
+  return (
+    <div className="h-[100dvh] bg-slate-50 text-slate-900 font-sans overflow-hidden flex flex-col antialiased">
+      <AnimatePresence mode="wait">
+        {view === AppView.HOME && (
+          <motion.div key="home" className="flex-1 flex flex-col" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            {renderHome()}
+          </motion.div>
+        )}
+        {view === AppView.SUMMARY && (
+          <motion.div key="summary" className="flex-1 flex flex-col" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            {renderSummary()}
+          </motion.div>
+        )}
+        {(view === AppView.SETTING || view === AppView.GRID || view === AppView.REPORT) && (
+          <motion.div key="detail" className="flex-1 flex flex-col overflow-hidden" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 50 }}>
+            {renderDetailHeader()}
+            <div className="flex-1 overflow-y-auto bg-slate-50/50">
+              {activeStrategy && (
+                <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-8 pb-32">
+                  {view === AppView.SETTING && (
                     <motion.div 
                       key="editor"
                       initial={{ opacity: 0, y: 5 }}
@@ -496,169 +663,34 @@ export default function App() {
                           <h3 className="font-bold text-slate-700 text-xs">策略核心参数</h3>
                         </div>
                         <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-sm">
-                          <InputWrapper label="股票/基金代码" sub="确认后将自动填充价格与名称">
-                            <div className="flex gap-2">
-                              <div className="relative group flex-1">
-                                <input 
-                                  type="text"
-                                  placeholder="例: 515980"
-                                  value={activeStrategy.symbol || ''}
-                                  onChange={(e) => updateStrategy({...activeStrategy, symbol: e.target.value})}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      getLivePrice(activeStrategy.symbol || '');
-                                    }
-                                  }}
-                                  className="input-field pr-24"
-                                />
-                                <div className="absolute right-0 top-0 bottom-0 flex items-center">
-                                  <button 
-                                    onClick={async () => {
-                                      if (!activeStrategy.symbol) return;
-                                      setIsDiagnosing(true);
-                                      try {
-                                        const today = new Date().toISOString().split('T')[0];
-                                        const cacheKey = `diagnosis_cache_${activeStrategy.symbol}_${today}_v9_multitime`;
-                                        const cachedData = localStorage.getItem(cacheKey);
-                                        
-                                        if (cachedData) {
-                                          try {
-                                            const parsed = JSON.parse(cachedData);
-                                            if (parsed.reports && parsed.suggestion) {
-                                              setDiagnosisReports({ reports: parsed.reports, symbol: activeStrategy.symbol });
-                                              return;
-                                            }
-                                          } catch(e) {}
-                                        }
-
-                                        const data = await fetchDiagnosticData(activeStrategy.symbol);
-                                        if (data && data.length >= 60) {
-                                          // 1Y ~250 days, 2Y ~500 days, 3Y ~750 days
-                                          const report1Y = analyzeGridSuitability(data.slice(-250));
-                                          const report2Y = analyzeGridSuitability(data.slice(-500));
-                                          const report3Y = analyzeGridSuitability(data);
-                                          const reports = [report1Y, report2Y, report3Y];
-                                          setDiagnosisReports({ reports, symbol: activeStrategy.symbol });
-                                          localStorage.setItem(cacheKey, JSON.stringify({ reports, symbol: activeStrategy.symbol, suggestion: report3Y.suggestion }));
-                                        } else {
-                                          alert("未能获取足够数据进行多时间段分析");
-                                        }
-                                      } catch (error) {
-                                        console.error(error);
-                                        alert("分析过程中发生错误");
-                                      } finally {
-                                        setIsDiagnosing(false);
-                                      }
-                                    }}
-                                    disabled={isDiagnosing}
-                                    className="px-2 h-full text-[10px] font-bold text-blue-600 hover:text-blue-700 disabled:text-slate-400 flex items-center justify-center gap-1"
-                                  >
-                                    {isDiagnosing ? <RefreshCw className="w-3 h-3 animate-spin" /> : "分析"}
-                                  </button>
-                                  <button 
-                                    onClick={() => getLivePrice(activeStrategy.symbol || '')}
-                                    disabled={isRefreshing || !activeStrategy.symbol}
-                                    className={`px-2.5 h-full flex items-center justify-center rounded-r-lg transition-all ${
-                                      activeStrategy.symbol ? 'text-blue-600 hover:bg-blue-50' : 'text-slate-200'
-                                    }`}
-                                  >
-                                    {isRefreshing ? (
-                                      <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />
-                                    ) : (
-                                      <Check className="w-4 h-4" />
-                                    )}
-                                  </button>
-                                </div>
-                              </div>
-                              <button 
-                                onClick={() => handleBacktest(activeStrategy)}
-                                disabled={isBacktesting}
-                                className="px-3 py-1 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded-lg disabled:opacity-50 flex items-center gap-1 font-bold text-xs flex-shrink-0 border border-amber-200 transition-colors"
-                                title="一年数据智能回测（建议网格/最大回撤等）"
-                              >
-                                {isBacktesting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
-                                数据回测
-                              </button>
-                            </div>
-                            
-                            {activeStrategy.backtest && (
-                              <div className="mt-3 bg-amber-50 rounded-xl shadow-sm border border-amber-200/60 overflow-hidden">
-                                <div className="bg-amber-100/50 px-3 py-1.5 border-b border-amber-100 flex items-center justify-between">
-                                  <div className="flex items-center gap-1.5 text-amber-700">
-                                    <History className="w-3.5 h-3.5" />
-                                    <h3 className="font-bold text-[11px]">历史数据回顾</h3>
-                                  </div>
-                                  <span className="text-[10px] text-amber-600/70">更于 {new Date(activeStrategy.backtest.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                </div>
-                                <div className="p-3 grid grid-cols-2 gap-3 text-sm">
-                                  <div className="flex flex-col gap-0.5">
-                                    <span className="text-[10px] font-bold text-amber-700/60 uppercase">单日平均 / 中位数振幅</span>
-                                    <span className="text-lg font-black text-amber-600 flex items-baseline gap-1">
-                                      <span>{activeStrategy.backtest.averageAmplitude}<span className="text-[10px]">%</span></span>
-                                      <span className="text-sm font-bold text-amber-600/80">/ {activeStrategy.backtest.medianAmplitude || activeStrategy.backtest.averageAmplitude}<span className="text-[10px]">%</span></span>
-                                    </span>
-                                    <p className="text-[9px] text-amber-700/60 leading-tight">建议网格大小为 {activeStrategy.backtest.suggestedGridInterval}%</p>
-                                  </div>
-                                  <div className="flex flex-col gap-0.5">
-                                    <span className="text-[10px] font-bold text-amber-700/60 uppercase">最大历史回撤 (1Y/3Y)</span>
-                                    <span className="text-lg font-black text-red-500 flex items-baseline gap-0.5">
-                                      {activeStrategy.backtest.maxDrawdown1Y ?? '-'}<span className="text-[10px]">%</span> / {activeStrategy.backtest.maxDrawdown3Y ?? '-'}<span className="text-[10px]">%</span>
-                                    </span>
-                                    <p className="text-[9px] text-amber-700/60 leading-tight">近1年 / 3年最高点至最低点跌幅</p>
-                                  </div>
-                                  <div className="flex flex-col gap-0.5 col-span-2 sm:col-span-1">
-                                    <span className="text-[10px] font-bold text-amber-700/60 uppercase">区间最低 / 最高</span>
-                                    <span className="text-sm font-bold text-amber-700 flex gap-2 pt-0.5">
-                                      <span className="text-[11px]">高: {activeStrategy.backtest.maxPrice}</span>
-                                      <span className="text-[11px]">低: {activeStrategy.backtest.minPrice}</span>
-                                    </span>
-                                    <p className="text-[9px] text-amber-700/60 leading-tight pt-0.5">安全网格区间建议覆盖 <br/>[{activeStrategy.backtest.suggestedBottom}, {activeStrategy.backtest.suggestedTop}]</p>
-                                  </div>
-                                  <div className="flex flex-col justify-end col-span-2 sm:col-span-1 border-t border-amber-200/50 pt-2 sm:border-t-0 sm:pt-0">
-                                    <button
-                                      onClick={() => {
-                                        updateStrategy({
-                                          ...activeStrategy,
-                                          gridInterval: activeStrategy.backtest!.suggestedGridInterval
-                                        });
-                                      }}
-                                      className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-white shadow-sm font-bold text-[11px] rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1"
-                                    >
-                                      一键应用网格建议
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </InputWrapper>
-                          <InputWrapper label="初始参考价 (¥)" sub={activeStrategy.currentPrice ? `实时: ${activeStrategy.currentPrice} (${new Date(activeStrategy.lastPriceTime || 0).toLocaleTimeString()})` : "当前市场价格"}>
+                          <InputWrapper label="初始参考价 (¥)" sub={activeStrategy.currentPrice ? `当前市价: ${activeStrategy.currentPrice}` : "网格计算的基准点位"}>
                             <div className="relative">
                               <input 
                                 type="number"
                                 step="0.001"
-                                inputMode="decimal"
+                                placeholder={activeStrategy.currentPrice?.toString() || "请输入基准价"}
                                 value={activeStrategy.initialPrice ?? ''}
                                 onChange={(e) => {
                                   const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
                                   updateStrategy({...activeStrategy, initialPrice: val});
                                 }}
-                                className="input-field"
+                                className="input-field pr-20"
                               />
                               {activeStrategy.currentPrice && (
                                 <button 
                                   onClick={() => updateStrategy({...activeStrategy, initialPrice: activeStrategy.currentPrice || 0})}
-                                  className="absolute right-1 top-1 bottom-1 px-2 text-[10px] text-blue-600 font-bold hover:bg-blue-50 rounded"
+                                  className="absolute right-1 top-1 bottom-1 px-3 text-[10px] text-blue-600 font-bold hover:bg-blue-100/50 rounded-lg transition-colors flex items-center justify-center gap-1"
                                 >
-                                  点此同步
+                                  <RefreshCw className="w-2.5 h-2.5" />
+                                  <span>点击同步</span>
                                 </button>
                               )}
                             </div>
                           </InputWrapper>
-                          <InputWrapper label="单个网格间距 (%)" sub="每跌多少买入一笔">
+                          <InputWrapper label="单个网格间距 (%)" sub="相邻买入点之间的价格跳动">
                             <input 
                               type="number"
                               step="0.1"
-                              inputMode="decimal"
                               value={activeStrategy.gridInterval ?? ''}
                               onChange={(e) => {
                                 const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
@@ -670,7 +702,6 @@ export default function App() {
                           <InputWrapper label="第一格投入金额 (¥)" sub="基础成交仓位">
                             <input 
                               type="number"
-                              inputMode="numeric"
                               value={activeStrategy.initialAmount ?? ''}
                               onChange={(e) => {
                                 const val = e.target.value === '' ? undefined : parseInt(e.target.value, 10);
@@ -688,7 +719,7 @@ export default function App() {
                           <h3 className="font-bold text-slate-700 text-xs">动态仓位 & 费率</h3>
                         </div>
                         <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-sm">
-                          <InputWrapper label="仓位递增类型" sub="越跌越买的策略">
+                          <InputWrapper label="仓位递增类型" sub="越跌越买的加仓逻辑">
                             <div className="flex bg-slate-100 rounded-lg p-0.5">
                               <button 
                                 onClick={() => updateStrategy({...activeStrategy, stepType: 'percent'})}
@@ -708,7 +739,6 @@ export default function App() {
                             <input 
                               type="number"
                               step="0.1"
-                              inputMode="decimal"
                               value={activeStrategy.stepValue ?? ''}
                               onChange={(e) => {
                                 const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
@@ -717,11 +747,10 @@ export default function App() {
                               className="input-field"
                             />
                           </InputWrapper>
-                          <InputWrapper label="成交佣金费率 (%)" sub="例：万分之零点五填 0.005">
+                          <InputWrapper label="成交佣金费率 (%)" sub="用于计算净利润（参考值）">
                             <input 
                               type="number"
                               step="0.001"
-                              inputMode="decimal"
                               value={activeStrategy.commissionRate ?? ''}
                               onChange={(e) => {
                                 const val = e.target.value === '' ? undefined : parseFloat(e.target.value);
@@ -737,41 +766,21 @@ export default function App() {
                         <div className="bg-slate-50/50 px-4 py-2 border-b border-slate-100 flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <FileText className="w-4 h-4 text-indigo-500" />
-                            <h3 className="font-bold text-slate-700 text-xs">策略笔记</h3>
+                            <h3 className="font-bold text-slate-700 text-xs">策略详细笔记</h3>
                           </div>
-                          <button 
-                            onClick={() => setIsNotesFullScreen(true)}
-                            className="p-1 hover:bg-slate-200 rounded transition-colors text-slate-400 hover:text-slate-600"
-                            title="全屏编辑"
-                          >
-                            <Maximize2 className="w-3.5 h-3.5" />
-                          </button>
                         </div>
-                        <div className="p-0 h-64 sm:h-80 overflow-hidden bg-white">
+                        <div className="h-64 sm:h-80">
                           <RichEditor 
-                            value={activeStrategy.notes || ''}
+                            value={activeStrategy.notes || ''} 
                             onChange={(html) => updateStrategy({...activeStrategy, notes: html})}
-                            placeholder="在此输入您的策略思路、注意事项等..."
+                            placeholder="在此输入您的网格策略备忘录、交易记录或心得..."
                           />
                         </div>
                       </div>
-
-                      <div className="sticky bottom-4 z-40 pt-2">
-                        <button 
-                          onClick={() => {
-                            setIsEditing(false);
-                            if (activeStrategy.symbol) {
-                              getLivePrice(activeStrategy.symbol);
-                            }
-                          }}
-                          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-500/30 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
-                        >
-                          <Save className="w-4 h-4" />
-                          生成交易网格
-                        </button>
-                      </div>
                     </motion.div>
-                  ) : (
+                  )}
+
+                  {view === AppView.GRID && (
                     <motion.div 
                       key="table"
                       initial={{ opacity: 0 }}
@@ -889,40 +898,50 @@ export default function App() {
                       </div>
                     </motion.div>
                   )}
-                </AnimatePresence>
-              </div>
-            </div>
-          </>
-        ) : (
-          <EmptyState onAdd={addStrategy} />
-        )}
-      </div>
 
-      {/* 全屏笔记编辑器 */}
-      <AnimatePresence>
-        {isNotesFullScreen && activeStrategy && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-white z-[60] flex flex-col"
-          >
-            <div className="flex-1 overflow-hidden bg-white">
-              <RichEditor 
-                value={activeStrategy.notes || ''}
-                onChange={(html) => updateStrategy({...activeStrategy, notes: html})}
-                placeholder="在此输入您的策略思路、注意事项等..."
-                rightToolbar={
-                  <button 
-                    onClick={() => setIsNotesFullScreen(false)}
-                    className="flex items-center gap-1.5 px-2.5 py-1 hover:bg-slate-200/50 rounded-md transition-all text-slate-500 hover:text-slate-700 text-xs font-bold"
-                  >
-                    <Minimize2 className="w-3.5 h-3.5" />
-                    退出全屏
-                  </button>
-                }
-              />
+                  {view === AppView.REPORT && (
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden min-h-[600px] flex flex-col">
+                      <GridDiagnosisReport 
+                        reports={analysisMap[activeStrategy.symbol!.toLowerCase()]?.reports || []}
+                        symbol={activeStrategy.symbol!}
+                        name={activeStrategy.name!}
+                        onClose={() => setView(AppView.SUMMARY)}
+                        onApplySuggestion={(min, max, step) => {
+                          updateStrategy({ ...activeStrategy, gridInterval: step });
+                          setView(AppView.GRID);
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+            
+            {view === AppView.SETTING && activeStrategy && (
+              <div className="shrink-0 p-4 bg-white border-t border-slate-200 shadow-[0_-4px_20px_-8px_rgba(0,0,0,0.05)]">
+                <div className="max-w-6xl mx-auto">
+                  <button 
+                    onClick={() => {
+                      // 如果用户没有填初始参考价，且有当前市价，则默认应用当前市价
+                      if (!activeStrategy.initialPrice && activeStrategy.currentPrice) {
+                        updateStrategy({
+                          ...activeStrategy,
+                          initialPrice: activeStrategy.currentPrice
+                        });
+                      }
+                      setView(AppView.GRID);
+                      if (activeStrategy.symbol) {
+                        getLivePrice(activeStrategy.symbol, activeStrategy.id);
+                      }
+                    }}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-blue-500/30 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>生成交易网格方案</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -986,32 +1005,3 @@ function InputWrapper({ label, sub, children }: { label: string, sub?: string, c
     </div>
   );
 }
-
-function EmptyState({ onAdd }: { onAdd: () => void }) {
-  return (
-    <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-xs space-y-6"
-      >
-        <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
-          <Grid3X3 className="w-8 h-8 text-blue-500" />
-        </div>
-        <button 
-          onClick={onAdd}
-          className="w-[250px] mx-auto bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-100 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          立即创建方案
-        </button>
-        <p className="mt-4 text-slate-400 text-xs text-center flex items-center justify-center gap-1.5">
-          <Info className="w-3.5 h-3.5" />
-          数据存在本地浏览器，请勿清空浏览器缓存
-        </p>
-      </motion.div>
-    </div>
-  );
-}
-
-
