@@ -306,13 +306,25 @@ export default function App() {
           // Get name
           let name = canonicalSymbol;
           try {
-            const formattedSymbol = canonicalSymbol.startsWith('sh') || canonicalSymbol.startsWith('sz') 
-              ? canonicalSymbol 
-              : (canonicalSymbol.startsWith('6') || canonicalSymbol.startsWith('5') ? 'sh' + canonicalSymbol : 'sz' + canonicalSymbol);
-            const text = await fetchTencentQuote(`s_${formattedSymbol}`);
-            if (text) {
-              name = text.split('~')[1] || name;
-            }
+            const possibleSymbols = [
+              canonicalSymbol.startsWith('sh') || canonicalSymbol.startsWith('sz') ? canonicalSymbol : 
+                (canonicalSymbol.startsWith('6') || canonicalSymbol.startsWith('5') ? 'sh' + canonicalSymbol : 'sz' + canonicalSymbol),
+              'sh' + canonicalSymbol.replace(/sh|sz/i, ''),
+              'sz' + canonicalSymbol.replace(/sh|sz/i, '')
+            ];
+            
+            for (const sym of possibleSymbols) {
+              try {
+                const text = await fetchTencentQuote(`s_${sym}`);
+                if (text && text.split('~').length > 1) {
+                  const fetchedName = text.split('~')[1];
+                  if (fetchedName && fetchedName !== 'N/A') {
+                    name = fetchedName;
+                    break;
+                  }
+                }
+              } catch(e) {}
+            };
           } catch(e) {}
 
           setAnalysisMap(prev => ({
@@ -356,34 +368,41 @@ export default function App() {
     setError(null);
     try {
       const canonicalSymbol = symbol.toLowerCase();
-      const formattedSymbol = canonicalSymbol.startsWith('sh') || canonicalSymbol.startsWith('sz') 
-        ? canonicalSymbol 
-        : (canonicalSymbol.startsWith('6') || canonicalSymbol.startsWith('5') ? 'sh' + canonicalSymbol : 'sz' + canonicalSymbol);
+      const possibleSymbols = [
+        canonicalSymbol.startsWith('sh') || canonicalSymbol.startsWith('sz') ? canonicalSymbol : 
+          (canonicalSymbol.startsWith('6') || canonicalSymbol.startsWith('5') ? 'sh' + canonicalSymbol : 'sz' + canonicalSymbol),
+        'sh' + canonicalSymbol.replace(/sh|sz/i, ''),
+        'sz' + canonicalSymbol.replace(/sh|sz/i, '')
+      ];
       
-      // Try simple quote first (using JSONP trick)
-      let text = await fetchTencentQuote(`s_${formattedSymbol}`);
-      
-      // If simple fails, try full quote
-      if (!text || text.split('~').length < 3) {
-        text = await fetchTencentQuote(formattedSymbol);
-      }
-
-      if (text) {
-        const parts = text.split('~');
-        if (parts.length > 3) {
-          const name = parts[1];
-          const price = parseFloat(parts[3]);
-          if (!isNaN(price) && price > 0) {
-            setStrategies(prev => prev.map(s => s.id === targetId ? {
-              ...s,
-              securityName: name, 
-              currentPrice: price,
-              initialPrice: s.initialPrice || price,
-              lastPriceTime: Date.now()
-            } : s));
-            return;
+      for (const sym of possibleSymbols) {
+        try {
+          // Try simple quote first
+          let text = await fetchTencentQuote(`s_${sym}`);
+          
+          // If simple fails or has no price, try full quote
+          if (!text || text.split('~').length < 4 || parseFloat(text.split('~')[3]) <= 0) {
+            text = await fetchTencentQuote(sym);
           }
-        }
+          
+          if (text) {
+            const parts = text.split('~');
+            if (parts.length > 3) {
+              const name = parts[1];
+              const price = parseFloat(parts[3]);
+              if (!isNaN(price) && price > 0) {
+                setStrategies(prev => prev.map(s => s.id === targetId ? {
+                  ...s,
+                  securityName: name, 
+                  currentPrice: price,
+                  initialPrice: s.initialPrice || price,
+                  lastPriceTime: Date.now()
+                } : s));
+                return;
+              }
+            }
+          }
+        } catch(e) {}
       }
       throw new Error('未获取到有效的价格数据');
     } catch (e: any) {

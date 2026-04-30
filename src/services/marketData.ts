@@ -13,13 +13,30 @@ export async function fetchBacktestData(symbol: string): Promise<BacktestResult 
     
     let data = null;
     
-    // 尝试多个市场的前缀: 1(上交所), 0(深交所), 100(美股等), 116(港股), 105, 106, 107
+    // Try to discover the correct secid if common prefixes fail
+    let discoveredSecid = null;
+    try {
+      const searchUrl = `https://searchapi.eastmoney.com/api/suggest/get?input=${formattedSymbol}&type=14`;
+      const searchRes: any = await jsonp(searchUrl, 'cb');
+      if (searchRes && searchRes.QuotationCodeTable && searchRes.QuotationCodeTable.Data && searchRes.QuotationCodeTable.Data.length > 0) {
+        discoveredSecid = searchRes.QuotationCodeTable.Data[0].SecID;
+      }
+    } catch (e) {
+      console.warn('Search discovery failed', e);
+    }
+
     const preferredPrefix = (formattedSymbol.startsWith('6') || formattedSymbol.startsWith('5')) ? '1' : '0';
-    const prefixes = preferredPrefix === '1' ? ['1', '0', '100', '116', '105', '106', '107'] : ['0', '1', '100', '116', '105', '106', '107'];
+    const prefixes = [preferredPrefix, preferredPrefix === '1' ? '0' : '1', '2', '100', '116', '105', '106', '107'];
+    
+    if (discoveredSecid && !prefixes.includes(discoveredSecid.split('.')[0])) {
+      prefixes.unshift(discoveredSecid.split('.')[0]);
+    }
 
     for (const prefix of prefixes) {
       try {
-        const secid = `${prefix}.${formattedSymbol}`;
+        const secid = discoveredSecid && discoveredSecid.endsWith(formattedSymbol) && discoveredSecid.startsWith(prefix) 
+          ? discoveredSecid 
+          : `${prefix}.${formattedSymbol}`;
         const baseUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=7eea3edcaed734bea9cbfc24409ed989&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`;
         
         try {
@@ -132,13 +149,30 @@ export async function fetchDiagnosticData(symbol: string): Promise<RawData[] | n
     
     let klines: string[] = [];
     
-    // 尝试多个市场的前缀: 1(上交所), 0(深交所), 100(美股等), 116(港股)
+    // Try to discover the correct secid if common prefixes fail
+    let discoveredSecid = null;
+    try {
+      const searchUrl = `https://searchapi.eastmoney.com/api/suggest/get?input=${formattedSymbol}&type=14`;
+      const searchRes: any = await jsonp(searchUrl, 'cb');
+      if (searchRes && searchRes.QuotationCodeTable && searchRes.QuotationCodeTable.Data && searchRes.QuotationCodeTable.Data.length > 0) {
+        discoveredSecid = searchRes.QuotationCodeTable.Data[0].SecID;
+      }
+    } catch (e) {
+      console.warn('Search discovery failed', e);
+    }
+
     const preferredPrefix = (formattedSymbol.startsWith('6') || formattedSymbol.startsWith('5')) ? '1' : '0';
-    const prefixes = preferredPrefix === '1' ? ['1', '0', '100', '116', '105', '106', '107'] : ['0', '1', '100', '116', '105', '106', '107'];
+    const prefixes = [preferredPrefix, preferredPrefix === '1' ? '0' : '1', '2', '100', '116', '105', '106', '107'];
+    
+    if (discoveredSecid && !prefixes.includes(discoveredSecid.split('.')[0])) {
+      prefixes.unshift(discoveredSecid.split('.')[0]);
+    }
 
     for (const prefix of prefixes) {
       try {
-        const secid = `${prefix}.${formattedSymbol}`;
+        const secid = discoveredSecid && discoveredSecid.endsWith(formattedSymbol) && discoveredSecid.startsWith(prefix) 
+          ? discoveredSecid 
+          : `${prefix}.${formattedSymbol}`;
         const baseUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=7eea3edcaed734bea9cbfc24409ed989&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`;
         
         try {
