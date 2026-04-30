@@ -3,6 +3,8 @@ export interface RawData {
   date: string;
   open: number;
   close: number;
+  high: number;
+  low: number;
   change_pct: number;
 }
 
@@ -196,7 +198,12 @@ export const analyzeGridSuitability = (data: RawData[]): DiagnosisReport => {
   else if (score >= 4) { rating = '勉强适合'; suggestion = '建议小资金测试'; }
 
   // 4. 回测辅助指标 (Backtest Metrics)
-  const amplitudes = processedData.map(d => Math.abs(d.change_pct));
+  const amplitudes = processedData.map((d, i) => {
+    // Amplitude = (High - Low) / PrevClose * 100
+    // If no prevClose, use current Close
+    const prevClose = i > 0 ? processedData[i-1].close : d.close;
+    return ((d.high - d.low) / prevClose) * 100;
+  });
   amplitudes.sort((a,b) => a-b);
   const avgAmplitude = amplitudes.reduce((a,b) => a+b, 0) / amplitudes.length;
   const medianAmplitude = amplitudes[Math.floor(amplitudes.length / 2)];
