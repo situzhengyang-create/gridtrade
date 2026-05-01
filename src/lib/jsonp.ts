@@ -1,25 +1,84 @@
 
 /**
- * Generic fetcher that uses our /api/proxy endpoint
+ * Simple JSONP implementation for fetching data from sources without CORS
  */
-export async function proxiedFetch<T>(url: string): Promise<T> {
-  const response = await fetch(`/api/proxy?url=${encodeURIComponent(url)}`);
-  if (!response.ok) {
-    throw new Error(`Proxy request failed: ${response.statusText}`);
-  }
-  return await response.json();
+export function jsonp<T>(url: string, callbackParam: string = 'cb'): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const callbackName = `jsonp_callback_${Math.round(100000 * Math.random())}`;
+    const separator = url.includes('?') ? '&' : '?';
+    const script = document.createElement('script');
+    
+    // Set up timeout
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      reject(new Error('JSONP Request Timeout'));
+    }, 15000);
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+      delete (window as any)[callbackName];
+    };
+
+    (window as any)[callbackName] = (data: T) => {
+      cleanup();
+      resolve(data);
+    };
+
+    script.src = `${url}${separator}${callbackParam}=${callbackName}`;
+    script.onerror = () => {
+      cleanup();
+      reject(new Error('JSONP Request Failed'));
+    };
+
+    document.body.appendChild(script);
+  });
 }
 
 /**
  * Specifically for Tencent which returns v_symbol = "data"
  */
-export async function fetchTencentQuote(symbol: string): Promise<string> {
-  // Tencent's format: v_sh510500 = "..."
-  // Proxy returns the JSON or text. 
-  // Let's adapt it.
-  const response = await fetch(`/api/proxy?url=${encodeURIComponent(`https://qt.gtimg.cn/q=${symbol}`)}`);
-  const text = await response.text();
-  // We need to extract the content inside the quotes if the proxy returned it as text or something
-  // If proxy returns `v_sh510500 = "..."`, we need the inside.
-  return text;
+export function fetchTencentQuote(symbol: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const callbackName = `v_${symbol}`;
+    const script = document.createElement('script');
+    script.src = `https://qt.gtimg.cn/q=${symbol}`;
+    script.charset = 'gbk';
+    
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      reject(new Error('Tencent Quote Timeout'));
+    }, 10000);
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+      // Note: we don't delete window[callbackName] immediately because Tencent code executes it as a variable assignment
+    };
+
+    // Since Tencent doesn't call a function but just assigns to a variable,
+    // we have to poll or use the onload event.
+    script.onload = () => {
+      const data = (window as any)[callbackName];
+      if (data) {
+        resolve(data);
+      } else {
+        reject(new Error('Failed to parse Tencent quote'));
+      }
+      cleanup();
+      // Remove from window after a short delay to be safe
+      setTimeout(() => { delete (window as any)[callbackName]; }, 1000);
+    };
+
+    script.onerror = () => {
+      cleanup();
+      reject(new Error('Tencent Quote Network Error'));
+    };
+
+    document.body.appendChild(script);
+  });
 }

@@ -35,7 +35,7 @@ import { fetchBacktestData, fetchDiagnosticData } from './services/marketData';
 import { analyzeGridSuitability, DiagnosisReport } from './services/gridDiagnosticService';
 import { getEastMoneyUrl, getEastMoneyAppScheme, getEastMoneyWapUrl } from './lib/stockUtils';
 import { GridDiagnosisReport } from './components/GridDiagnosisReport';
-import { fetchTencentQuote, proxiedFetch } from './lib/jsonp';
+import { fetchTencentQuote, jsonp } from './lib/jsonp';
 
 enum AppView {
   HOME = 'HOME',
@@ -404,30 +404,22 @@ export default function App() {
       return next;
     });
     
-    // Process each symbol sequentially with significant delays to mimic human research
+    // Process each symbol
     let isFirstFetch = true;
     for (const symbol of symbols) {
       const canonicalSymbol = symbol.toLowerCase();
       if (!forceRefresh && analysisMap[canonicalSymbol]) continue;
 
       if (!isFirstFetch) {
-        // 模拟人类在浏览、思考的停顿：3-7秒
-        const humanDelay = 3000 + Math.random() * 4000;
-        await new Promise(resolve => setTimeout(resolve, humanDelay));
-        
-        // 偶尔的长停顿 (10% 概率停顿 10-15秒)
-        if (Math.random() < 0.1) {
-          await new Promise(resolve => setTimeout(resolve, 10000 + Math.random() * 5000));
-        }
+        await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
       }
       isFirstFetch = false;
       
       try {
         const data = await fetchDiagnosticData(canonicalSymbol);
         
-        // Update name and diagnostic data
+        // Always try to fetch descriptive name regardless of data length
         let name = canonicalSymbol.toUpperCase();
-        // ... rest of the logic remains similar but wrapped in better error handling
         try {
           const possibleSymbols = [
             canonicalSymbol.startsWith('sh') || canonicalSymbol.startsWith('sz') ? canonicalSymbol : 
@@ -546,7 +538,7 @@ export default function App() {
         for (const p of [preferredPrefix, preferredPrefix === '1' ? '0' : '1', '116', '105', '106']) {
           try {
             const emUrl = `https://push2.eastmoney.com/api/qt/stock/get?secid=${p}.${formatted}&ut=fa5fd1943c41bc19e5917409249e37&fields=f43,f44,f45,f57,f58`;
-            const res: any = await proxiedFetch(emUrl);
+            const res: any = await jsonp(emUrl, 'cb');
             if (res && res.data && res.data.f43 && res.data.f43 !== '-') {
               const price = res.data.f43 / 100; // f43 is usually price * 100 in some EM APIs, but let's check
               // Actually, f43 might be the real price if it's from push2.
