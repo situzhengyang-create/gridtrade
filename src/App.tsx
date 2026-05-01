@@ -35,7 +35,7 @@ import { fetchBacktestData, fetchDiagnosticData } from './services/marketData';
 import { analyzeGridSuitability, DiagnosisReport } from './services/gridDiagnosticService';
 import { getEastMoneyUrl, getEastMoneyAppScheme, getEastMoneyWapUrl } from './lib/stockUtils';
 import { GridDiagnosisReport } from './components/GridDiagnosisReport';
-import { fetchTencentQuote, jsonp } from './lib/jsonp';
+import { fetchTencentQuote, proxiedFetch } from './lib/jsonp';
 
 enum AppView {
   HOME = 'HOME',
@@ -546,7 +546,7 @@ export default function App() {
         for (const p of [preferredPrefix, preferredPrefix === '1' ? '0' : '1', '116', '105', '106']) {
           try {
             const emUrl = `https://push2.eastmoney.com/api/qt/stock/get?secid=${p}.${formatted}&ut=fa5fd1943c41bc19e5917409249e37&fields=f43,f44,f45,f57,f58`;
-            const res: any = await jsonp(emUrl, 'cb');
+            const res: any = await proxiedFetch(emUrl);
             if (res && res.data && res.data.f43 && res.data.f43 !== '-') {
               const price = res.data.f43 / 100; // f43 is usually price * 100 in some EM APIs, but let's check
               // Actually, f43 might be the real price if it's from push2.
