@@ -3,9 +3,40 @@ import { BacktestResult } from '../types';
 import { RawData } from './gridDiagnosticService';
 import { jsonp } from '../lib/jsonp';
 
+const secidCache: Record<string, string> = {};
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24小时缓存
+
+/**
+ * 模拟人为延迟
+ */
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// 缓存辅助
+const getCache = (key: string) => {
+  const cached = localStorage.getItem(key);
+  if (!cached) return null;
+  const { data, timestamp } = JSON.parse(cached);
+  if (Date.now() - timestamp > CACHE_TTL_MS) {
+    localStorage.removeItem(key);
+    return null;
+  }
+  return data;
+};
+
+const setCache = (key: string, data: any) => {
+  localStorage.setItem(key, JSON.stringify({ data, timestamp: Date.now() }));
+};
+
 export async function fetchBacktestData(symbol: string): Promise<BacktestResult | null> {
+  const cacheKey = `backtest_${symbol}_${new Date().toISOString().slice(0, 10)}`;
+  const cachedData = getCache(cacheKey);
+  if (cachedData) return cachedData;
+
   try {
     const formattedSymbol = symbol.replace(/SH|SZ/i, '').toUpperCase();
+    
+    // 随机抖动：批量请求时避免瞬间并发
+    await sleep(Math.random() * 500 + 200);
       
     const end = new Date().toISOString().slice(0,10).replace(/-/g, '');
     const threeYearsAgo = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000);
@@ -13,18 +44,21 @@ export async function fetchBacktestData(symbol: string): Promise<BacktestResult 
     
     let data = null;
     
-    // Try to discover the correct secid
-    let discoveredSecid = null;
-    try {
-      const searchUrl = `https://searchapi.eastmoney.com/api/suggest/get?input=${formattedSymbol}&type=14`;
-      const searchRes: any = await jsonp(searchUrl, 'cb');
-      if (searchRes && searchRes.QuotationCodeTable && searchRes.QuotationCodeTable.Data && searchRes.QuotationCodeTable.Data.length > 0) {
-        // Look for exact code match first
-        const match = searchRes.QuotationCodeTable.Data.find((d: any) => d.Code === formattedSymbol || d.Code === symbol.toUpperCase());
-        discoveredSecid = match ? match.SecID : searchRes.QuotationCodeTable.Data[0].SecID;
+    // Try to discover the correct secid with caching
+    let discoveredSecid = secidCache[formattedSymbol] || null;
+    
+    if (!discoveredSecid) {
+      try {
+        const searchUrl = `https://searchapi.eastmoney.com/api/suggest/get?input=${formattedSymbol}&type=14&v=${Date.now()}`;
+        const searchRes: any = await (await fetch(`/api/proxy?url=${encodeURIComponent(searchUrl)}`)).json();
+        if (searchRes && searchRes.QuotationCodeTable && searchRes.QuotationCodeTable.Data && searchRes.QuotationCodeTable.Data.length > 0) {
+          const match = searchRes.QuotationCodeTable.Data.find((d: any) => d.Code === formattedSymbol || d.Code === symbol.toUpperCase());
+          discoveredSecid = match ? match.SecID : searchRes.QuotationCodeTable.Data[0].SecID;
+          if (discoveredSecid) secidCache[formattedSymbol] = discoveredSecid;
+        }
+      } catch (e) {
+        console.warn('Discovery failed, using defaults', e);
       }
-    } catch (e) {
-      console.warn('Discovery failed, using defaults', e);
     }
 
     const preferredPrefix = (formattedSymbol.startsWith('6') || formattedSymbol.startsWith('5')) ? '1' : '0';
@@ -35,22 +69,22 @@ export async function fetchBacktestData(symbol: string): Promise<BacktestResult 
        if (!prefixes.includes(p)) prefixes.unshift(p);
     }
 
+    // Attempt with retries and jittered sequence
     for (const prefix of prefixes) {
       try {
         const secid = (discoveredSecid && discoveredSecid.endsWith(formattedSymbol)) ? discoveredSecid : `${prefix}.${formattedSymbol}`;
-        const baseUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c41bc19e5917409249e37&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`;
+        // 添加一些看起来更真实的参数，包含动态时间戳和 ut
+        const baseUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c41bc19e5917409249e37&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}&_=${Date.now()}`;
         
-        try {
-          const response: any = await jsonp(baseUrl, 'cb');
-          if (response && response.data && response.data.klines && response.data.klines.length > 0) {
-            data = response.data;
-            break;
-          }
-        } catch (error) {
-          console.warn(`Failed jsonp for ${prefix}`, error);
+        const response: any = await (await fetch(`/api/proxy?url=${encodeURIComponent(baseUrl)}`)).json();
+        if (response && response.data && response.data.klines && response.data.klines.length > 0) {
+          data = response.data;
+          break;
         }
-      } catch (e) {
-        console.warn(`Error compiling URL for prefix ${prefix}`, e);
+        // 如果失败了，等一会儿再试下一个 prefix
+        await sleep(300);
+      } catch (error) {
+        console.warn(`Failed proxy fetch for ${prefix}`, error);
       }
     }
 
@@ -76,6 +110,7 @@ export async function fetchBacktestData(symbol: string): Promise<BacktestResult 
       return null;
     }
 
+    setCache(cacheKey, data);
     const klines = data.klines;
     
     // 1 year threshold for amplitude/min/max
@@ -159,8 +194,15 @@ export async function fetchBacktestData(symbol: string): Promise<BacktestResult 
 }
 
 export async function fetchDiagnosticData(symbol: string): Promise<RawData[] | null> {
+  const cacheKey = `diag_${symbol}_${new Date().toISOString().slice(0, 10)}`;
+  const cachedData = getCache(cacheKey);
+  if (cachedData) return cachedData;
+
   try {
     const formattedSymbol = symbol.replace(/SH|SZ/i, '').toUpperCase();
+    
+    // 随机抖动
+    await sleep(Math.random() * 500 + 200);
       
     const end = new Date().toISOString().slice(0,10).replace(/-/g, '');
     const threeYearsAgo = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000);
@@ -168,18 +210,21 @@ export async function fetchDiagnosticData(symbol: string): Promise<RawData[] | n
     
     let klines: string[] = [];
     
-    // Try to discover the correct secid
-    let discoveredSecid = null;
-    try {
-      const searchUrl = `https://searchapi.eastmoney.com/api/suggest/get?input=${formattedSymbol}&type=14`;
-      const searchRes: any = await jsonp(searchUrl, 'cb');
-      if (searchRes && searchRes.QuotationCodeTable && searchRes.QuotationCodeTable.Data && searchRes.QuotationCodeTable.Data.length > 0) {
-        // Look for exact code match first
-        const match = searchRes.QuotationCodeTable.Data.find((d: any) => d.Code === formattedSymbol || d.Code === symbol.toUpperCase());
-        discoveredSecid = match ? match.SecID : searchRes.QuotationCodeTable.Data[0].SecID;
+    // Try to discover the correct secid with caching
+    let discoveredSecid = secidCache[formattedSymbol] || null;
+    
+    if (!discoveredSecid) {
+      try {
+        const searchUrl = `https://searchapi.eastmoney.com/api/suggest/get?input=${formattedSymbol}&type=14&v=${Date.now()}`;
+        const searchRes: any = await (await fetch(`/api/proxy?url=${encodeURIComponent(searchUrl)}`)).json();
+        if (searchRes && searchRes.QuotationCodeTable && searchRes.QuotationCodeTable.Data && searchRes.QuotationCodeTable.Data.length > 0) {
+          const match = searchRes.QuotationCodeTable.Data.find((d: any) => d.Code === formattedSymbol || d.Code === symbol.toUpperCase());
+          discoveredSecid = match ? match.SecID : searchRes.QuotationCodeTable.Data[0].SecID;
+          if (discoveredSecid) secidCache[formattedSymbol] = discoveredSecid;
+        }
+      } catch (e) {
+        console.warn('Discovery failed', e);
       }
-    } catch (e) {
-      console.warn('Discovery failed', e);
     }
 
     const preferredPrefix = (formattedSymbol.startsWith('6') || formattedSymbol.startsWith('5')) ? '1' : '0';
@@ -193,19 +238,16 @@ export async function fetchDiagnosticData(symbol: string): Promise<RawData[] | n
     for (const prefix of prefixes) {
       try {
         const secid = (discoveredSecid && discoveredSecid.endsWith(formattedSymbol)) ? discoveredSecid : `${prefix}.${formattedSymbol}`;
-        const baseUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c41bc19e5917409249e37&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}`;
+        const baseUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&ut=fa5fd1943c41bc19e5917409249e37&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&beg=${start}&end=${end}&_=${Date.now()}`;
         
-        try {
-          const response: any = await jsonp(baseUrl, 'cb');
-          if (response && response.data && response.data.klines && response.data.klines.length > 0) {
-            klines = response.data.klines;
-            break;
-          }
-        } catch (error) {
-           console.warn(`Failed jsonp for prefix ${prefix}`, error);
+        const response: any = await (await fetch(`/api/proxy?url=${encodeURIComponent(baseUrl)}`)).json();
+        if (response && response.data && response.data.klines && response.data.klines.length > 0) {
+          klines = response.data.klines;
+          break;
         }
-      } catch (e) {
-        console.warn(`Error compiling URL for prefix ${prefix}`, e);
+        await sleep(300);
+      } catch (error) {
+         console.warn(`Failed proxy fetch for prefix ${prefix}`, error);
       }
     }
 
@@ -228,7 +270,7 @@ export async function fetchDiagnosticData(symbol: string): Promise<RawData[] | n
       return null;
     }
 
-    return klines.map(kline => {
+    const result = klines.map(kline => {
       const parts = kline.split(',');
       return {
         date: parts[0],
@@ -239,6 +281,9 @@ export async function fetchDiagnosticData(symbol: string): Promise<RawData[] | n
         change_pct: parseFloat(parts[8]) // f59 is percentage change
       };
     });
+
+    setCache(cacheKey, result);
+    return result;
   } catch (err) {
     console.error('Error fetching diagnosis data:', err);
     return null;

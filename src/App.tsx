@@ -404,22 +404,30 @@ export default function App() {
       return next;
     });
     
-    // Process each symbol
+    // Process each symbol sequentially with significant delays to mimic human research
     let isFirstFetch = true;
     for (const symbol of symbols) {
       const canonicalSymbol = symbol.toLowerCase();
       if (!forceRefresh && analysisMap[canonicalSymbol]) continue;
 
       if (!isFirstFetch) {
-        await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
+        // 模拟人类在浏览、思考的停顿：3-7秒
+        const humanDelay = 3000 + Math.random() * 4000;
+        await new Promise(resolve => setTimeout(resolve, humanDelay));
+        
+        // 偶尔的长停顿 (10% 概率停顿 10-15秒)
+        if (Math.random() < 0.1) {
+          await new Promise(resolve => setTimeout(resolve, 10000 + Math.random() * 5000));
+        }
       }
       isFirstFetch = false;
       
       try {
         const data = await fetchDiagnosticData(canonicalSymbol);
         
-        // Always try to fetch descriptive name regardless of data length
+        // Update name and diagnostic data
         let name = canonicalSymbol.toUpperCase();
+        // ... rest of the logic remains similar but wrapped in better error handling
         try {
           const possibleSymbols = [
             canonicalSymbol.startsWith('sh') || canonicalSymbol.startsWith('sz') ? canonicalSymbol : 
