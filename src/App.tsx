@@ -26,46 +26,59 @@ import {
   ArrowRight,
   AlertTriangle,
   Lightbulb,
-  Github
+  Github,
+  Eye,
+  EyeOff,
+  Filter,
+  HelpCircle
 } from 'lucide-react';
 import axios from 'axios';
-import { GridStrategy, GridLevel } from './types';
+import { GridStrategy, GridLevel, FilterCondition, FilterPreset, FilterPeriod, FilterMetric, FilterOperator, TrendIndicator } from './types';
 import RichEditor from './components/RichEditor';
 import { fetchBacktestData, fetchDiagnosticData } from './services/marketData';
 import { analyzeGridSuitability, DiagnosisReport } from './services/gridDiagnosticService';
+import { computeTrendIndicator } from './services/trendIndicatorService';
+import TrendInstructionModal from './components/TrendInstructionModal';
 import { getEastMoneyUrl, getEastMoneyAppScheme, getEastMoneyWapUrl } from './lib/stockUtils';
 import { GridDiagnosisReport } from './components/GridDiagnosisReport';
 import { fetchTencentQuote, jsonp } from './lib/jsonp';
+import TrendMonitorPanel from './components/TrendMonitorPanel';
+import DecisionFlowPanel from './components/DecisionFlowPanel';
+import ArchitectureDocPanel from './components/ArchitectureDocPanel';
+import ApplicationGuidePanel from './components/ApplicationGuidePanel';
+import SettingsPanel from './components/SettingsPanel';
+import { defaultTrendParams, TrendParams } from './types/params';
 
 enum AppView {
   HOME = 'HOME',
   SUMMARY = 'SUMMARY',
   SETTING = 'SETTING',
   GRID = 'GRID',
-  REPORT = 'REPORT'
+  REPORT = 'REPORT',
+  TREND = 'TREND',
+  DECISION_FLOW = 'DECISION_FLOW',
+  ARCHITECTURE_DOC = 'ARCHITECTURE_DOC',
+  APPLICATION_GUIDE = 'APPLICATION_GUIDE',
+  TREND_SETTINGS = 'TREND_SETTINGS'
 }
 
 export default function App() {
   const [analyzedSymbols, setAnalyzedSymbols] = useState<string[]>(() => {
     const saved = localStorage.getItem('grid_analyzed_symbols');
-    return saved ? JSON.parse(saved) : [];
+    return saved ? Array.from(new Set(JSON.parse(saved) as string[])) : [];
   });
   
   const [view, setView] = useState<AppView>(() => {
     const saved = localStorage.getItem('grid_app_view');
     if (saved) return saved as AppView;
-    const symbolsJson = localStorage.getItem('grid_analyzed_symbols');
-    if (symbolsJson) {
-       try {
-          const syms = JSON.parse(symbolsJson);
-          if (Array.isArray(syms) && syms.length > 0) return AppView.SUMMARY;
-       } catch(e) {}
-    }
-    return AppView.HOME;
+    return AppView.SUMMARY;
   });
   
   const [symbolsInput, setSymbolsInput] = useState('');
-  const [analysisMap, setAnalysisMap] = useState<Record<string, { reports: DiagnosisReport[], name: string, statusText: string }>>(() => {
+  const [showAddPanel, setShowAddPanel] = useState(false);
+  const [trendSymbolsInput, setTrendSymbolsInput] = useState('');
+  const [showTrendAddPanel, setShowTrendAddPanel] = useState(false);
+  const [analysisMap, setAnalysisMap] = useState<Record<string, { reports: DiagnosisReport[], name: string, statusText: string, updatedAt?: string }>>(() => {
     const saved = localStorage.getItem('grid_analysis_map');
     return saved ? JSON.parse(saved) : {};
   });
@@ -76,13 +89,57 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          const uniqueMap = new Map<string, GridStrategy>();
+          for (const item of parsed) {
+            if (item && item.id) {
+              uniqueMap.set(item.id, item);
+            }
+          }
+          return Array.from(uniqueMap.values());
+        }
       } catch (e) {}
     }
     return [];
   });
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [copiedSymbols, setCopiedSymbols] = useState(false);
   const [summarySortMode, setSummarySortMode] = useState<'DEFAULT' | 'CONCLUSION'>('DEFAULT');
+  const [showNavDrawer, setShowNavDrawer] = useState(false);
+  const [showTrendHelpModal, setShowTrendHelpModal] = useState(false);
+  const [trendSymbols, setTrendSymbols] = useState<string[]>(() => {
+    const saved = localStorage.getItem('grid_trend_symbols');
+    return saved ? Array.from(new Set(JSON.parse(saved) as string[])) : [];
+  });
+  const [trendIndicators, setTrendIndicators] = useState<TrendIndicator[]>(() => {
+    const saved = localStorage.getItem('grid_trend_indicators');
+    if (!saved) return [];
+    try {
+      const parsed = JSON.parse(saved) as TrendIndicator[];
+      const uniqueMap = new Map<string, TrendIndicator>();
+      for (const item of parsed) {
+        if (item && item.symbol) {
+          uniqueMap.set(item.symbol, item);
+        }
+      }
+      return Array.from(uniqueMap.values());
+    } catch {
+      return [];
+    }
+  });
+  const [trendLoading, setTrendLoading] = useState<Record<string, boolean>>({});
+  const [decisionFlowSymbol, setDecisionFlowSymbol] = useState<string | null>(null);
+  const [trendParams, setTrendParams] = useState<TrendParams>(() => {
+    const saved = localStorage.getItem('grid_trend_params');
+    if (saved) {
+      try {
+        return { ...defaultTrendParams, ...JSON.parse(saved) };
+      } catch {
+        return defaultTrendParams;
+      }
+    }
+    return defaultTrendParams;
+  });
   
   const updateStrategy = (updated: GridStrategy) => {
     setStrategies(prev => prev.map(s => s.id === updated.id ? updated : s));
@@ -122,11 +179,62 @@ export default function App() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isBacktesting, setIsBacktesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isFiltered, setIsFiltered] = useState(false);
+  
+  const [selectedSymbolFilters, setSelectedSymbolFilters] = useState<string[]>(() => {
+    const saved = localStorage.getItem('grid_selected_symbol_filters');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
+  const [filterConditions, setFilterConditions] = useState<FilterCondition[]>(() => {
+    const saved = localStorage.getItem('grid_filter_conditions');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [filterPresets, setFilterPresets] = useState<FilterPreset[]>(() => {
+    const saved = localStorage.getItem('grid_filter_presets');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [isSavingPreset, setIsSavingPreset] = useState(false);
+  const [newPresetName, setNewPresetName] = useState('');
 
   // New delete mode states
   const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>([]);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+
+  const addFilterCondition = () => {
+    setFilterConditions([...filterConditions, {
+      id: Math.random().toString(36).substring(2),
+      metric: 'medAmp',
+      period: 2, // 3Y
+      operator: '>',
+      value: 1
+    }]);
+  };
+
+  const updateFilterCondition = (id: string, updates: Partial<FilterCondition>) => {
+    setFilterConditions(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+  };
+
+  const removeFilterCondition = (id: string) => {
+    setFilterConditions(prev => prev.filter(c => c.id !== id));
+  };
+
+  const savePreset = () => {
+    if (!newPresetName.trim()) return;
+    setFilterPresets([...filterPresets, { id: Math.random().toString(36).substring(2), name: newPresetName.trim(), conditions: [...filterConditions] }]);
+    setNewPresetName('');
+    setIsSavingPreset(false);
+  };
+
+  const loadPreset = (preset: FilterPreset) => {
+    setFilterConditions(preset.conditions.map(c => ({...c, id: Math.random().toString(36).substring(2)})));
+  };
+  const removePreset = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setFilterPresets(prev => prev.filter(p => p.id !== id));
+  };
 
   // Initialize from local storage
   useEffect(() => {
@@ -180,6 +288,26 @@ export default function App() {
     localStorage.setItem('grid_analyzed_symbols', JSON.stringify(analyzedSymbols));
   }, [analyzedSymbols]);
 
+  useEffect(() => {
+    localStorage.setItem('grid_filter_conditions', JSON.stringify(filterConditions));
+  }, [filterConditions]);
+
+  useEffect(() => {
+    localStorage.setItem('grid_filter_presets', JSON.stringify(filterPresets));
+  }, [filterPresets]);
+
+  useEffect(() => {
+    localStorage.setItem('grid_selected_symbol_filters', JSON.stringify(selectedSymbolFilters));
+  }, [selectedSymbolFilters]);
+
+  useEffect(() => {
+    localStorage.setItem('grid_trend_symbols', JSON.stringify(trendSymbols));
+  }, [trendSymbols]);
+
+  useEffect(() => {
+    localStorage.setItem('grid_trend_indicators', JSON.stringify(trendIndicators));
+  }, [trendIndicators]);
+
   // 切换到设置视图或切换策略时自动刷新价格
   useEffect(() => {
     if (view === AppView.SETTING && activeStrategy?.symbol) {
@@ -207,19 +335,69 @@ export default function App() {
   const sortedStrategies = useMemo(() => {
     const getSortVal = (symbol: string) => {
       const result = analysisMap[symbol.toLowerCase()];
-      if (!result || !result.reports) return 0;
-      return result.reports.reduce((sum, r) => sum + (r.score || 0), 0);
+      if (!result || !result.reports || result.reports.length === 0) return 0;
+      return result.reports.reduce((sum, r) => sum + (r.score || 0), 0) / result.reports.length;
     };
     
-    const displaySymbols = [...analyzedSymbols].reverse();
+    let displaySymbols = [...analyzedSymbols].reverse();
+
+    if (selectedSymbolFilters.length > 0) {
+      displaySymbols = displaySymbols.filter(sym => selectedSymbolFilters.includes(sym.toLowerCase()));
+    }
+
+    if (isFiltered) {
+      displaySymbols = displaySymbols.filter(sym => {
+        const result = analysisMap[sym.toLowerCase()];
+        if (!result) return false;
+        // Hide unsuccessful statuses and those not suitable for grid
+        const unacceptableStatuses = ['获取失败', '数据不足', '不适合'];
+        if (unacceptableStatuses.includes(result.statusText)) return false;
+        return true;
+      });
+    }
+
+    if (filterConditions.length > 0) {
+      displaySymbols = displaySymbols.filter(sym => {
+        const result = analysisMap[sym.toLowerCase()];
+        if (!result || !result.reports) return false;
+        
+        return filterConditions.every(cond => {
+          const report = result.reports[cond.period];
+          if (!report || !report.backtest) return false;
+          
+          let val = 0;
+          switch (cond.metric) {
+            case 'score': val = report.score || 0; break;
+            case 'avgAmp': val = report.backtest.avgDailyAmplitude || 0; break;
+            case 'medAmp': val = report.backtest.medianDailyAmplitude || 0; break;
+            case 'maxDrawdown': val = report.backtest.maxDrawdown || 0; break;
+            case 'totalReturn': val = report.details?.cumulativeReturn || 0; break;
+            case 'suggestedGrid': val = report.backtest.recommendedGridSize || 0; break;
+          }
+          
+          switch (cond.operator) {
+            case '>': return val > cond.value;
+            case '<': return val < cond.value;
+            case '>=': return val >= cond.value;
+            case '<=': return val <= cond.value;
+            default: return true;
+          }
+        });
+      });
+    }
+
     if (summarySortMode === 'CONCLUSION') {
-      displaySymbols.sort((a, b) => getSortVal(b) - getSortVal(a));
+      displaySymbols.sort((a, b) => {
+         const valA = analysisMap[a.toLowerCase()]?.reports.reduce((sum, r) => sum + (r.score || 0), 0) || 0;
+         const valB = analysisMap[b.toLowerCase()]?.reports.reduce((sum, r) => sum + (r.score || 0), 0) || 0;
+         return valB - valA;
+      });
     }
     
     return displaySymbols.map(sym => 
       strategies.find(s => s.symbol?.toLowerCase() === sym.toLowerCase())
     ).filter(Boolean) as GridStrategy[];
-  }, [analyzedSymbols, summarySortMode, analysisMap, strategies]);
+  }, [analyzedSymbols, summarySortMode, analysisMap, strategies, isFiltered, filterConditions, selectedSymbolFilters]);
 
   const activeIndex = useMemo(() => {
     if (!activeId || sortedStrategies.length === 0) return -1;
@@ -411,7 +589,7 @@ export default function App() {
       if (!forceRefresh && analysisMap[canonicalSymbol]) continue;
 
       if (!isFirstFetch) {
-        await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
+        await new Promise(resolve => setTimeout(resolve, 5000 + Math.random() * 5000));
       }
       isFirstFetch = false;
       
@@ -455,7 +633,7 @@ export default function App() {
           
           setAnalysisMap(prev => ({
             ...prev,
-            [canonicalSymbol]: { reports, name, statusText: report3Y.rating }
+            [canonicalSymbol]: { reports, name, statusText: report3Y.rating, updatedAt: new Date().toISOString() }
           }));
 
           // Update strategy with recommended grid size if it was a fresh creation
@@ -472,19 +650,80 @@ export default function App() {
            // Not enough data but we have some results
            setAnalysisMap(prev => ({
             ...prev,
-            [canonicalSymbol]: { reports: [], name, statusText: '数据不足' }
+            [canonicalSymbol]: { reports: [], name, statusText: '数据不足', updatedAt: new Date().toISOString() }
           }));
         }
       } catch (e) {
         console.error(`Analysis failed for ${canonicalSymbol}`, e);
         setAnalysisMap(prev => ({
           ...prev,
-          [canonicalSymbol]: { reports: [], name: canonicalSymbol.toUpperCase(), statusText: '获取失败' }
+          [canonicalSymbol]: { reports: [], name: canonicalSymbol.toUpperCase(), statusText: '获取失败', updatedAt: new Date().toISOString() }
         }));
       } finally {
         setLoadingMap(prev => ({ ...prev, [canonicalSymbol]: false }));
       }
     }
+  };
+
+  const handleTrendRefresh = async (symbol: string) => {
+    const canonical = symbol.toLowerCase();
+    setTrendLoading(prev => ({ ...prev, [canonical]: true }));
+    try {
+      const data = await fetchDiagnosticData(canonical);
+      if (data && data.length > 40) {
+        // Fetch name
+        let name = canonical.toUpperCase();
+        try {
+          const possibleSymbols = [
+            canonical.startsWith('sh') || canonical.startsWith('sz') ? canonical : 
+              (canonical.startsWith('6') || canonical.startsWith('5') ? 'sh' + canonical : 'sz' + canonical),
+            'sh' + canonical.replace(/sh|sz/i, ''),
+            'sz' + canonical.replace(/sh|sz/i, ''),
+            'hk' + canonical.replace(/hk/i, ''),
+            'us' + canonical.replace(/us/i, '')
+          ];
+          for (const sym of possibleSymbols) {
+            const text = await fetchTencentQuote(`s_${sym}`);
+            if (text && text.split('~').length > 1) {
+              name = text.split('~')[1];
+              if (name && name !== 'N/A') break;
+            }
+          }
+        } catch(e) {}
+
+        const indicator = computeTrendIndicator(canonical, name, data, trendParams);
+        setTrendIndicators(prev => {
+          const filtered = prev.filter(ti => ti.symbol !== canonical);
+          return [...filtered, indicator];
+        });
+      }
+    } catch (e) {
+      console.error(`Trend check failed for ${canonical}`, e);
+    } finally {
+      setTrendLoading(prev => ({ ...prev, [canonical]: false }));
+    }
+  };
+
+  const handleBatchAddTrend = async (input: string) => {
+    let symbols = cleanSymbols(input);
+    if (symbols.length === 0) return;
+    
+    symbols = Array.from(new Set(symbols.map(s => s.toLowerCase())));
+    
+    setTrendSymbols(prev => {
+      const filtered = prev.filter(s => !symbols.includes(s));
+      return [...filtered, ...symbols];
+    });
+
+    for (const sym of symbols) {
+      await handleTrendRefresh(sym);
+    }
+  };
+
+  const handleRemoveTrend = (symbol: string) => {
+    const canonical = symbol.toLowerCase();
+    setTrendSymbols(prev => prev.filter(s => s !== canonical));
+    setTrendIndicators(prev => prev.filter(ti => ti.symbol !== canonical));
   };
 
   const getLivePrice = async (symbol: string, targetId: string) => {
@@ -615,6 +854,118 @@ export default function App() {
 
   const gridData = useMemo(() => activeStrategy ? calculateGrid(activeStrategy) : [], [activeStrategy]);
 
+  const renderNavDrawer = () => {
+    return (
+      <AnimatePresence>
+        {showNavDrawer && (
+          <motion.div 
+            key="nav-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowNavDrawer(false)}
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-[1000]"
+          />
+        )}
+        {showNavDrawer && (
+          <motion.div 
+            key="nav-drawer"
+            initial={{ x: '-100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '-100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="fixed inset-y-0 left-0 w-full max-w-[280px] bg-white shadow-2xl z-[1001] flex flex-col"
+          >
+            <div className="px-6 py-8 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100">
+                    <Activity className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 tracking-tight">Q-Trade</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Trading Systems</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowNavDrawer(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-white">
+                 <button 
+                  onClick={() => {
+                    setView(AppView.SUMMARY);
+                    setShowNavDrawer(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-4 rounded-2xl transition-all ${view === AppView.SUMMARY || view === AppView.HOME || view === AppView.GRID || view === AppView.REPORT || view === AppView.SETTING ? 'bg-indigo-50 text-indigo-700 font-bold' : 'hover:bg-slate-50 text-slate-600 font-medium'}`}
+                 >
+                   <div className={`p-2 rounded-xl flex-shrink-0 ${view === AppView.SUMMARY || view === AppView.HOME || view === AppView.GRID || view === AppView.REPORT || view === AppView.SETTING ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}>
+                     <Activity className="w-5 h-5" />
+                   </div>
+                   <div className="text-left flex-1">
+                     <div className="text-sm">网格交易系统</div>
+                     <div className="text-[10px] uppercase tracking-widest opacity-60">Grid Trade</div>
+                   </div>
+                 </button>
+
+                 <button 
+                  onClick={() => {
+                    setView(AppView.TREND);
+                    setShowNavDrawer(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-4 rounded-2xl transition-all ${view === AppView.TREND ? 'bg-indigo-50 text-indigo-700 font-bold' : 'hover:bg-slate-50 text-slate-600 font-medium'}`}
+                 >
+                   <div className={`p-2 rounded-xl flex-shrink-0 ${view === AppView.TREND ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}>
+                     <TrendingUp className="w-5 h-5" />
+                   </div>
+                   <div className="text-left flex-1">
+                     <div className="text-sm">趋势交易系统</div>
+                     <div className="text-[10px] uppercase tracking-widest opacity-60">Trend Trade</div>
+                   </div>
+                 </button>
+              </div>
+            </motion.div>
+        )}
+      </AnimatePresence>
+    );
+  };
+  const renderTrend = () => {
+    return (
+      <div className="flex-1 flex flex-col bg-white overflow-hidden relative w-full min-w-0">
+        <TrendMonitorPanel
+          symbols={trendSymbols}
+          indicators={trendIndicators}
+          loadingSymbols={trendLoading}
+          onAddSymbol={() => setShowTrendAddPanel(true)}
+          onRefreshAll={async () => {
+            for (const sym of trendSymbols) {
+              await handleTrendRefresh(sym);
+            }
+          }}
+          onRemoveSymbol={(symbol) => handleRemoveTrend(symbol)}
+          onRefreshSymbol={(symbol) => handleTrendRefresh(symbol)}
+          addPanelOpen={showTrendAddPanel}
+          onToggleAddPanel={() => setShowTrendAddPanel(!showTrendAddPanel)}
+          inputValue={trendSymbolsInput}
+          onInputChange={(value) => setTrendSymbolsInput(value)}
+          onConfirmAdd={() => {
+            if (trendSymbolsInput.trim()) {
+              handleBatchAddTrend(trendSymbolsInput);
+              setTrendSymbolsInput('');
+              setShowTrendAddPanel(false);
+            }
+          }}
+          onOpenNav={() => setShowNavDrawer(true)}
+          onOpenDecisionFlow={(symbol) => {
+            setDecisionFlowSymbol(symbol);
+            setView(AppView.DECISION_FLOW);
+          }}
+          onOpenSettings={() => setView(AppView.TREND_SETTINGS)}
+        />
+      </div>
+    );
+  };
+
   const renderHome = () => (
     <div className="flex-1 flex flex-col items-center justify-center p-6 bg-white overflow-y-auto">
       <motion.div 
@@ -627,7 +978,13 @@ export default function App() {
              <Activity className="w-8 h-8 text-white" />
           </div>
           <div className="text-center">
-            <h1 className="text-4xl font-black text-slate-900 tracking-tighter uppercase">GRIDTRADE</h1>
+            <h1 
+              onClick={() => setShowNavDrawer(true)}
+              className="text-4xl font-black text-slate-900 tracking-tighter uppercase cursor-pointer hover:text-blue-600 transition-colors flex items-center gap-3"
+            >
+              <Menu className="w-8 h-8 text-slate-400" />
+              GRIDTRADE
+            </h1>
           </div>
         </div>
 
@@ -662,10 +1019,230 @@ export default function App() {
     </div>
   );
 
+  const renderFilterPanel = () => {
+    return (
+      <AnimatePresence>
+        {isFilterPanelOpen && (
+          <motion.div 
+            key="filter-panel"
+            initial={{ height: 0, opacity: 0 }} 
+            animate={{ height: 'auto', opacity: 1 }} 
+            exit={{ height: 0, opacity: 0 }} 
+            className="overflow-hidden bg-indigo-50/30 border-b border-indigo-100 shrink-0"
+          >
+            <div className="p-4 space-y-4 max-w-full overflow-x-auto">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest min-w-max">筛选条件</span>
+                  
+                  {filterPresets.length > 0 && (
+                    <div className="flex items-center border border-slate-200 rounded overflow-hidden bg-slate-50 ml-0 sm:ml-2 w-full sm:w-auto">
+                      <select
+                        className="text-[11px] font-bold text-slate-600 bg-transparent p-1.5 w-full sm:w-32 outline-none border-none cursor-pointer"
+                        value={filterPresets.find(p => p.conditions.length === filterConditions.length && p.conditions.every((c, i) => c.metric === filterConditions[i]?.metric && c.period === filterConditions[i]?.period && c.operator === filterConditions[i]?.operator && c.value === filterConditions[i]?.value))?.id || ''}
+                        onChange={(e) => {
+                          const preset = filterPresets.find(p => p.id === e.target.value);
+                          if (preset) loadPreset(preset);
+                        }}
+                      >
+                        <option value="">-- 选择已存组合 --</option>
+                        {filterPresets.map(preset => (
+                          <option key={preset.id} value={preset.id}>{preset.name}</option>
+                        ))}
+                      </select>
+                      {filterPresets.length > 0 && filterPresets.some(p => p.id === filterPresets.find(p => p.conditions.length === filterConditions.length && p.conditions.every((c, i) => c.metric === filterConditions[i]?.metric && c.period === filterConditions[i]?.period && c.operator === filterConditions[i]?.operator && c.value === filterConditions[i]?.value))?.id) && (
+                        <button 
+                          onClick={(e) => {
+                            const activeId = filterPresets.find(p => p.conditions.length === filterConditions.length && p.conditions.every((c, i) => c.metric === filterConditions[i]?.metric && c.period === filterConditions[i]?.period && c.operator === filterConditions[i]?.operator && c.value === filterConditions[i]?.value))?.id;
+                            if (activeId) removePreset(activeId, e);
+                          }}
+                          className="px-2 py-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors border-l border-slate-200 min-w-max"
+                          title="删除当前预设"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button onClick={addFilterCondition} className="flex items-center gap-1 text-[11px] font-bold text-indigo-600 bg-indigo-100 hover:bg-indigo-200 px-3 py-1.5 rounded transition-colors shrink-0">
+                    <Plus className="w-3.5 h-3.5" /> 添加条件
+                  </button>
+                  
+                  {filterConditions.length > 0 && !isSavingPreset && (
+                    <button onClick={() => setIsSavingPreset(true)} className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 bg-emerald-100 hover:bg-emerald-200 px-3 py-1.5 rounded transition-colors border border-emerald-200 shrink-0">
+                      <Save className="w-3.5 h-3.5" /> 保存此组合
+                    </button>
+                  )}
+                  
+                  {filterConditions.length > 0 && isSavingPreset && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <input 
+                        type="text" 
+                        value={newPresetName} 
+                        onChange={(e) => setNewPresetName(e.target.value)} 
+                        placeholder="组合名称" 
+                        className="text-[11px] w-24 sm:w-32 px-2 py-1.5 bg-white border border-slate-200 rounded outline-none focus:border-indigo-500"
+                        autoFocus
+                        onKeyDown={(e) => e.key === 'Enter' && savePreset()}
+                      />
+                      <button onClick={savePreset} disabled={!newPresetName.trim()} className="text-[11px] font-bold text-white bg-emerald-500 hover:bg-emerald-600 px-3 py-1.5 rounded transition-colors disabled:opacity-50">
+                        确定
+                      </button>
+                      <button onClick={() => setIsSavingPreset(false)} className="text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded transition-colors">
+                        取消
+                      </button>
+                    </div>
+                  )}
+                  
+                  {filterConditions.length > 0 && (
+                    <button onClick={() => setFilterConditions([])} className="flex items-center gap-1 text-[11px] font-bold text-rose-600 bg-rose-100 hover:bg-rose-200 px-3 py-1.5 rounded transition-colors border border-rose-200 shrink-0">
+                      清空
+                    </button>
+                  )}
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2 flex-wrap pb-2 border-b border-indigo-100/50">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest min-w-max">筛选标的</span>
+                    {selectedSymbolFilters.length > 0 && (
+                      <button 
+                        onClick={() => setSelectedSymbolFilters([])}
+                        className="text-[10px] text-red-500 hover:text-red-700 font-bold px-1"
+                      >
+                        清空
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {analyzedSymbols.map(sym => (
+                      <button
+                        key={sym}
+                        onClick={() => setSelectedSymbolFilters(prev => 
+                          prev.includes(sym.toLowerCase()) ? prev.filter(s => s !== sym.toLowerCase()) : [...prev, sym.toLowerCase()]
+                        )}
+                        className={`text-[10px] font-bold px-2 py-1 rounded transition-colors border ${
+                          selectedSymbolFilters.includes(sym.toLowerCase()) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 hover:bg-slate-50 border-slate-200'
+                        }`}
+                      >
+                        {analysisMap[sym.toLowerCase()]?.name || sym.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+              </div>
+              
+              {filterConditions.length > 0 ? (
+                <div className="space-y-2">
+                  {filterConditions.map((cond, index) => (
+                    <div key={cond.id} className="flex items-center gap-2 bg-white border border-slate-200 p-2 rounded-lg shadow-sm w-max transition-colors hover:border-indigo-300">
+                      <select 
+                        value={cond.period} 
+                        onChange={(e) => updateFilterCondition(cond.id, { period: Number(e.target.value) as FilterPeriod })}
+                        className="text-[11px] font-semibold text-slate-700 bg-transparent outline-none focus:ring-0 border-none p-0 cursor-pointer"
+                      >
+                        <option value={0}>1年</option>
+                        <option value={1}>2年</option>
+                        <option value={2}>3年</option>
+                      </select>
+                      <select 
+                        value={cond.metric} 
+                        onChange={(e) => updateFilterCondition(cond.id, { metric: e.target.value as FilterMetric })}
+                        className="text-[11px] font-semibold text-slate-700 bg-transparent outline-none focus:ring-0 border-none p-0 cursor-pointer"
+                      >
+                        <option value="score">综合评分(分)</option>
+                        <option value="avgAmp">平均振幅(%)</option>
+                        <option value="medAmp">中位振幅(%)</option>
+                        <option value="maxDrawdown">最大回撤(%)</option>
+                        <option value="totalReturn">累计涨跌(%)</option>
+                        <option value="suggestedGrid">建议网格(%)</option>
+                      </select>
+                      <select 
+                        value={cond.operator} 
+                        onChange={(e) => updateFilterCondition(cond.id, { operator: e.target.value as FilterOperator })}
+                        className="text-[12px] font-black text-indigo-500 bg-indigo-50 px-1 py-0.5 rounded outline-none focus:ring-0 border-none cursor-pointer"
+                      >
+                        <option value=">">&gt;</option>
+                        <option value="<">&lt;</option>
+                        <option value=">=">&ge;</option>
+                        <option value="<=">&le;</option>
+                      </select>
+                      <input 
+                        type="number" 
+                        value={cond.value}
+                        onChange={(e) => updateFilterCondition(cond.id, { value: Number(e.target.value) })}
+                        placeholder="值"
+                        className="w-16 text-[12px] font-mono tabular-nums text-slate-700 bg-transparent border-b border-slate-300 focus:border-indigo-500 outline-none p-0 mx-1 text-center"
+                      />
+                      <button onClick={() => removeFilterCondition(cond.id)} className="text-slate-300 hover:text-rose-500 transition-colors shrink-0 ml-1 z-10">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[10px] text-slate-400 py-2">暂无筛选条件。</div>
+              )}
+
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    );
+  };
+
+  const renderAddPanel = () => {
+    return (
+      <AnimatePresence>
+        {showAddPanel && (
+          <motion.div 
+            key="add-panel"
+            initial={{ height: 0, opacity: 0 }} 
+            animate={{ height: 'auto', opacity: 1 }} 
+            exit={{ height: 0, opacity: 0 }} 
+            className="overflow-hidden bg-slate-50 border-b border-slate-100 shrink-0"
+          >
+            <div className="p-4 space-y-3">
+              <textarea 
+                value={symbolsInput}
+                onChange={(e) => setSymbolsInput(e.target.value)}
+                placeholder="在此输入证券代码，多个代码以空格分隔..."
+                className="w-full h-20 p-3 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-300 outline-none transition-all font-mono placeholder:text-slate-400 placeholder:font-sans resize-none text-[11px]"
+              />
+              <button 
+                onClick={() => {
+                  const newSymbols = cleanSymbols(symbolsInput);
+                  if (newSymbols.length > 0) {
+                    setSymbolsInput('');
+                    const nonDuplicateSymbols = newSymbols.filter(s => !analyzedSymbols.includes(s));
+                    if (nonDuplicateSymbols.length > 0) {
+                      setAnalyzedSymbols(prev => {
+                        const newArray = [...prev, ...nonDuplicateSymbols];
+                        return Array.from(new Set(newArray));
+                      });
+                      handleStartAnalysis(nonDuplicateSymbols);
+                    }
+                    setShowAddPanel(false);
+                  }
+                }}
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-sm shadow-blue-600/10 transition-all flex items-center justify-center gap-2 text-[11px]"
+              >
+                <Search className="w-3.5 h-3.5" />
+                添加并诊断
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    );
+  };
+
   const renderSummary = () => {
     return (
-      <div className="flex-1 flex flex-col bg-white overflow-hidden relative">
-        <header className="px-6 py-4 flex items-center justify-between bg-white border-b border-slate-100 z-50 shrink-0">
+      <div className="flex-1 flex flex-col bg-white overflow-hidden relative w-full min-w-0">
+        <header className="px-3 py-4 flex items-center justify-between bg-white border-b border-slate-100 z-50 shrink-0 min-w-0">
           <div className="flex items-center gap-4">
             {isDeleteMode && (
               <button 
@@ -678,17 +1255,43 @@ export default function App() {
                 <X className="w-5 h-5" />
               </button>
             )}
-            <h2 className="text-xl font-black text-slate-900 uppercase tracking-tighter">
+            <h2 
+              onClick={() => !isDeleteMode && setShowNavDrawer(true)}
+              className={`text-xl font-black text-slate-900 uppercase tracking-tighter flex items-center gap-2 ${!isDeleteMode ? 'cursor-pointer hover:text-blue-600 transition-colors' : ''}`}
+            >
+              {!isDeleteMode && <Menu className="w-5 h-5 text-slate-400" />}
               {isDeleteMode ? `已选择 ${selectedSymbols.length} 个标的` : 'GridTrade'}
             </h2>
           </div>
           <div className="flex items-center gap-3">
+             <div className="flex relative">
+               <button 
+                 onClick={() => setShowAddPanel(!showAddPanel)}
+                 className={`p-2 rounded-full transition-colors ${showAddPanel ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                 title="添加标的"
+               >
+                 <Plus className="w-4 h-4" />
+               </button>
+               <button 
+                 onClick={() => setIsFilterPanelOpen(!isFilterPanelOpen)}
+                 className={`p-2 rounded-full transition-colors relative ${filterConditions.length > 0 || isFilterPanelOpen ? 'bg-indigo-100 text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                 title="高级筛选"
+               >
+                 <Filter className="w-4 h-4" />
+                 {filterConditions.length > 0 && (
+                   <span className="absolute top-1 right-1 w-2 h-2 bg-indigo-500 rounded-full border-2 border-white"></span>
+                 )}
+               </button>
+             </div>
+             <button 
+                onClick={() => setIsFiltered(!isFiltered)}
+                className={`p-2 rounded-full transition-colors ${isFiltered ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                title="隐藏异常标的"
+              >
+                {isFiltered ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
              {!isDeleteMode ? (
                <>
-                 <div className="flex items-center gap-2 text-[10px] font-black text-slate-300">
-                    <Activity className="w-3 h-3 text-blue-500" />
-                    <span className="tabular-nums">{analyzedSymbols.length} 标的</span>
-                 </div>
                  <button 
                    onClick={() => setIsDeleteMode(true)}
                    className="p-2 text-slate-400 hover:text-rose-500 transition-colors"
@@ -720,12 +1323,44 @@ export default function App() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto min-h-0">
-          <table className="w-full text-left border-collapse table-fixed">
-            <thead>
-              <tr className="bg-slate-50/50 border-b border-slate-100">
-                <th className="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[40%]">
-                  <div className="flex items-center gap-2">
+        {renderFilterPanel()}
+        {renderAddPanel()}
+
+        <div className="px-2 py-2 text-[10px] text-slate-400/80 font-medium bg-slate-50 border-b border-slate-100 flex items-center justify-between shrink-0">
+           <div className="flex items-center gap-2">
+             <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+             </svg>
+             各指标自上而下代表近 1、2、3 年表现
+           </div>
+           {!isDeleteMode && (
+             <div className="flex items-center gap-2 text-[10px] font-black text-slate-300">
+                <Activity className="w-3 h-3 text-blue-500" />
+                <span className="tabular-nums">{analyzedSymbols.length} 标的</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const codes = sortedStrategies.map(s => s.symbol).filter(Boolean).join(' ');
+                    navigator.clipboard.writeText(codes).then(() => {
+                      setCopiedSymbols(true);
+                      setTimeout(() => setCopiedSymbols(false), 2000);
+                    });
+                  }}
+                  className={`transition-colors ${copiedSymbols ? 'text-green-500' : 'text-slate-400 hover:text-blue-500'}`}
+                  title={copiedSymbols ? "复制成功" : "复制筛选后的证券代码"}
+                >
+                  {copiedSymbols ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                </button>
+             </div>
+           )}
+        </div>
+
+        <div className="flex-1 overflow-auto min-h-0 min-w-0 w-full relative [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <table className="w-full text-left border-collapse min-w-[max-content]">
+            <thead className="sticky top-0 z-30 shadow-sm bg-slate-50">
+              <tr className="border-b border-slate-100">
+                <th className="px-2 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest min-w-[100px] sticky left-0 z-40 bg-slate-50 border-r border-slate-100">
+                  <div className="flex items-center gap-1.5">
                     {isDeleteMode && (
                       <div 
                         onClick={() => {
@@ -742,11 +1377,8 @@ export default function App() {
                     <span>证券</span>
                   </div>
                 </th>
-                <th className="px-0.5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[10%]">3Y</th>
-                <th className="px-0.5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[10%]">2Y</th>
-                <th className="px-0.5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[10%]">1Y</th>
                 <th 
-                  className="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center w-[30%] cursor-pointer hover:text-slate-600 select-none group"
+                  className="px-2 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center min-w-[60px] cursor-pointer hover:text-slate-600 select-none group"
                   onClick={() => setSummarySortMode(prev => prev === 'DEFAULT' ? 'CONCLUSION' : 'DEFAULT')}
                 >
                   <div className="flex items-center justify-center gap-1">
@@ -756,6 +1388,13 @@ export default function App() {
                     </svg>
                   </div>
                 </th>
+                <th className="px-1.5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center min-w-[40px]">评分</th>
+                
+                <th className="px-1.5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-tight text-center min-w-[60px]">平均振幅</th>
+                <th className="px-1.5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-tight text-center min-w-[60px]">中位振幅</th>
+                <th className="px-1.5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-tight text-center min-w-[60px]">最大回撤</th>
+                <th className="px-1.5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-tight text-center min-w-[60px]">累计涨跌</th>
+                <th className="px-1.5 py-3 text-[10px] font-black text-slate-400 uppercase tracking-tight text-center min-w-[60px]">建议网格</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -771,20 +1410,20 @@ export default function App() {
                     key={strategy.id} 
                     onClick={() => isDeleteMode && toggleSelection(symbol)}
                     className={`group transition-colors ${
-                      isDeleteMode ? 'cursor-pointer' : 'hover:bg-slate-50/30'
-                    } ${isSelected ? 'bg-rose-50/30' : ''}`}
+                      isDeleteMode ? 'cursor-pointer' : 'hover:bg-slate-50'
+                    } ${isSelected ? 'bg-rose-50' : 'bg-white'}`}
                   >
-                    <td className="px-4 py-4 overflow-hidden">
-                      <div className="flex items-start gap-1.5 min-w-0">
+                    <td className={`px-2 py-4 overflow-hidden sticky left-0 z-10 border-r border-slate-50 transition-colors ${isSelected ? 'bg-rose-50' : 'bg-white group-hover:bg-slate-50'}`}>
+                      <div className="flex items-start gap-1 min-w-0">
                         {isDeleteMode && (
-                           <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-all shrink-0 mt-0.5 ${
+                           <div className={`w-3 h-3 rounded border flex items-center justify-center transition-all shrink-0 mt-0.5 ${
                              isSelected ? 'bg-rose-500 border-rose-500' : 'bg-white border-slate-300'
                            }`}>
                              {isSelected && <Check className="w-2 h-2 text-white stroke-[4]" />}
                            </div>
                         )}
                         <div className="flex flex-col gap-0.5 min-w-0">
-                           <div className="text-[13px] font-black text-slate-900 leading-tight">
+                           <div className="text-[12px] font-black text-slate-900 leading-tight">
                               {isLoading ? (
                                 <div className="w-16 h-3 bg-slate-100 animate-pulse rounded" />
                               ) : (
@@ -798,93 +1437,65 @@ export default function App() {
                               )}
                            </div>
                            {!isLoading && result?.name && (
-                             <a 
-                               href={getEastMoneyUrl(symbol)}
-                               target="_blank"
-                               rel="noopener noreferrer"
-                               onClick={(e) => handleStockClick(e, symbol)}
-                               className="text-[9px] font-bold text-slate-400 font-mono tabular-nums leading-none hover:text-blue-500 transition-all opacity-80"
-                             >
-                               {symbol.replace(/sh|sz|hk|us/i, '')}
-                             </a>
+                             <div className="flex items-center gap-1.5 flex-wrap mt-[2px]">
+                               <a 
+                                 href={getEastMoneyUrl(symbol)}
+                                 target="_blank"
+                                 rel="noopener noreferrer"
+                                 onClick={(e) => handleStockClick(e, symbol)}
+                                 className="text-[9px] font-bold text-slate-400 font-mono tabular-nums leading-none hover:text-blue-500 transition-all opacity-80"
+                               >
+                                 {symbol.replace(/sh|sz|hk|us/i, '')}
+                               </a>
+                               {result.updatedAt && (() => {
+                                 const uDate = new Date(result.updatedAt);
+                                 const formattedDate = `${String(uDate.getMonth() + 1).padStart(2, '0')}-${String(uDate.getDate()).padStart(2, '0')}`;
+                                 return (
+                                   <span className="text-[9px] text-slate-400 font-medium leading-none tabular-nums opacity-60 ml-1" title="历史数据最后抓取时间">
+                                     {formattedDate}更新
+                                   </span>
+                                 );
+                               })()}
+                             </div>
                            )}
                            
                            {!isLoading && strategy && !isDeleteMode && (
-                              <div className="flex items-center gap-2 mt-1.5">
+                              <div className="flex flex-wrap items-center gap-1 mt-1.5">
                                 {[
-                                  { icon: FileText, v: AppView.REPORT, title: '报告' },
-                                  { icon: Settings2, v: AppView.SETTING, title: '设置' },
-                                  { icon: Grid3X3, v: AppView.GRID, title: '网格' },
+                                  { icon: FileText, onClick: () => { setActiveId(strategy.id); setView(AppView.REPORT); }, title: '报告' },
+                                  { icon: Settings2, onClick: () => { setActiveId(strategy.id); setView(AppView.SETTING); }, title: '设置' },
+                                  { icon: Grid3X3, onClick: () => { setActiveId(strategy.id); setView(AppView.GRID); if (!strategy.currentPrice) getLivePrice(strategy.symbol!, strategy.id); }, title: '网格' },
+                                  { icon: TrendingUp, onClick: () => { handleBatchAddTrend(symbol); setView(AppView.TREND); }, title: '趋势分析' },
                                 ].map((btn, i) => (
                                   <button 
-                                    key={i}
+                                    key={`btn-${strategy.id}-${i}`}
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setActiveId(strategy.id);
-                                      setView(btn.v);
-                                      if (btn.v === AppView.GRID && !strategy.currentPrice) getLivePrice(strategy.symbol!, strategy.id);
+                                      btn.onClick();
                                     }}
-                                    className="p-0.5 text-slate-300 hover:text-blue-500 transition-all"
+                                    className="p-1 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded transition-all"
                                     title={btn.title}
                                   >
                                     <btn.icon className="w-3.5 h-3.5" />
                                   </button>
                                 ))}
+                                <button
+                                  onClick={(e) => {
+                                     e.stopPropagation();
+                                     handleStartAnalysis([symbol], true);
+                                  }}
+                                  className="p-1 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded transition-all ml-0.5"
+                                  title="重新抓取"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5" />
+                                </button>
                               </div>
                            )}
                         </div>
                       </div>
                     </td>
-                    
-                    {isLoading || result ? [2, 1, 0].map(idx => {
-                      const r = result?.reports?.[idx];
-                      return (
-                        <td 
-                          key={idx} 
-                          className={`px-0.5 py-4 text-center ${!isDeleteMode ? 'cursor-pointer' : ''}`}
-                          onClick={(e) => {
-                            if (!isDeleteMode) {
-                              e.stopPropagation();
-                              setActiveId(strategy.id);
-                              setView(AppView.REPORT);
-                            }
-                          }}
-                        >
-                          {isLoading ? (
-                            <div className="w-4 h-4 border-2 border-slate-100 border-t-blue-500 rounded-full animate-spin mx-auto" />
-                          ) : r ? (
-                            <span className={`text-[18px] font-black tabular-nums tracking-tighter transition-colors ${
-                              r.score >= 7 ? 'text-blue-600' : 
-                              r.score >= 5 ? 'text-blue-500' : 
-                              'text-slate-300'
-                            }`}>
-                               {r.score}
-                            </span>
-                          ) : (
-                            <span className="text-slate-200 text-[10px]">-</span>
-                          )}
-                        </td>
-                      );
-                    }) : (
-                      <td colSpan={3} className="px-1 py-4 text-center">
-                        {!isDeleteMode && (
-                           <button 
-                             onClick={(e) => {
-                               e.stopPropagation();
-                               handleStartAnalysis([symbol]);
-                             }}
-                             className="mx-auto p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded transition-all flex items-center gap-1 justify-center"
-                             title="重试诊断"
-                           >
-                             <RefreshCw className="w-3 h-3" />
-                             <span className="text-[11px] font-bold leading-none tracking-tight whitespace-nowrap">重试</span>
-                           </button>
-                        )}
-                      </td>
-                    )}
-
                     <td 
-                      className={`px-4 py-4 text-center ${!isDeleteMode ? 'cursor-pointer' : ''}`}
+                      className={`px-1 py-4 text-center ${!isDeleteMode ? 'cursor-pointer' : ''}`}
                       onClick={(e) => {
                         if (!isDeleteMode) {
                           e.stopPropagation();
@@ -896,56 +1507,183 @@ export default function App() {
                        {isLoading ? (
                          <div className="w-10 h-2.5 bg-slate-50 animate-pulse rounded mx-auto" />
                        ) : result ? (
-                         <span className={`text-[10px] font-black whitespace-nowrap transition-colors ${
-                            (result.reports?.[2]?.score || 0) >= 7 ? 'text-blue-600' :
-                            (result.reports?.[2]?.score || 0) >= 5 ? 'text-blue-500' :
-                            'text-slate-400'
-                         }`}>
-                           {result.statusText.replace('历史数据不足', '数据不足').replace('结论：', '').replace('适合网格交易', '适合').replace('勉强适合网格交易', '勉强适合').replace('不适合网格交易', '不适合')}
-                         </span>
+                         (() => {
+                           const status = result.statusText
+                             .replace('历史数据不足', '数据不足')
+                             .replace('结论：', '')
+                             .replace('适合网格交易', '适合')
+                             .replace('勉强适合网格交易', '勉强适合')
+                             .replace('不适合网格交易', '不适合');
+                           
+                           const color = status.includes('适合') ? 'text-blue-600' : 
+                                         status.includes('勉强适合') ? 'text-amber-500' :
+                                         status.includes('不适合') ? 'text-rose-500' :
+                                         'text-slate-400';
+                           
+                           return (
+                             <span className={`text-[10px] font-black whitespace-nowrap transition-colors ${color}`}>
+                               {status}
+                             </span>
+                           );
+                         })()
                        ) : (
                          <span className="text-[10px] font-black text-slate-300">
                            获取失败
                          </span>
                        )}
                     </td>
+                    
+                    <td 
+                      className={`px-0.5 py-4 ${!isDeleteMode ? 'cursor-pointer' : ''}`}
+                      onClick={(e) => {
+                        if (!isDeleteMode) {
+                          e.stopPropagation();
+                          setActiveId(strategy.id);
+                          setView(AppView.REPORT);
+                        }
+                      }}
+                    >
+                      {isLoading || result ? (
+                        <div className="flex flex-col gap-0.5">
+                          {isLoading ? (
+                            <div className="w-4 h-4 border-2 border-slate-100 border-t-blue-500 rounded-full animate-spin mx-auto" />
+                          ) : result?.reports ? [0, 1, 2].map(idx => {
+                            const r = result.reports[idx];
+                            return (
+                              <div key={`score-${strategy.id}-${idx}`} className="flex items-center justify-center gap-1 leading-none h-3">
+                                {r ? (
+                                  <span className={`text-[12px] font-black tabular-nums transition-colors ${
+                                    r.score >= 7 ? 'text-blue-600' : 
+                                    r.score >= 5 ? 'text-blue-500' : 
+                                    'text-slate-300'
+                                  }`}>
+                                     {r.score}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-200 text-[10px]">-</span>
+                                )}
+                              </div>
+                            );
+                          }) : (
+                            <div className="text-center text-slate-200">-</div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-center">
+                          {!isDeleteMode && (
+                             <button 
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 handleStartAnalysis([symbol]);
+                               }}
+                               className="mx-auto p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded transition-all flex items-center gap-1 justify-center"
+                               title="重试诊断"
+                             >
+                               <RefreshCw className="w-3 h-3" />
+                               <span className="text-[11px] font-bold leading-none tracking-tight whitespace-nowrap">重试</span>
+                             </button>
+                          )}
+                        </div>
+                      )}
+                    </td>
+
+                    {/* Comparison Columns */}
+                    <td className="px-0.5 py-4">
+                      {result?.reports ? (
+                        <div className="flex flex-col gap-0.5">
+                          {[0, 1, 2].map(idx => {
+                            const val = result.reports[idx]?.backtest?.avgDailyAmplitude;
+                            return (
+                              <div key={`avgAmp-${strategy.id}-${idx}`} className="flex items-center justify-center gap-1 leading-none h-3">
+                                <span className="text-[10px] font-black tabular-nums text-slate-600">
+                                  {val ? val.toFixed(2) + '%' : '-'}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : <div className="text-center text-slate-200">-</div>}
+                    </td>
+
+                    <td className="px-0.5 py-4">
+                      {result?.reports ? (
+                        <div className="flex flex-col gap-0.5">
+                          {[0, 1, 2].map(idx => {
+                            const val = result.reports[idx]?.backtest?.medianDailyAmplitude;
+                            return (
+                              <div key={`medAmp-${strategy.id}-${idx}`} className="flex items-center justify-center gap-1 leading-none h-3">
+                                <span className="text-[10px] font-black tabular-nums text-slate-600">
+                                  {val ? val.toFixed(2) + '%' : '-'}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : <div className="text-center text-slate-200">-</div>}
+                    </td>
+
+                    <td className="px-0.5 py-4">
+                      {result?.reports ? (
+                        <div className="flex flex-col gap-0.5">
+                          {[0, 1, 2].map(idx => {
+                            const val = result.reports[idx]?.backtest?.maxDrawdown;
+                            return (
+                              <div key={`maxDr-${strategy.id}-${idx}`} className="flex items-center justify-center gap-1 leading-none h-3">
+                                <span className="text-[10px] font-black tabular-nums text-emerald-500">
+                                  {val ? '-' + val.toFixed(1) + '%' : '-'}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : <div className="text-center text-slate-200">-</div>}
+                    </td>
+
+                    <td className="px-0.5 py-4">
+                      {result?.reports ? (
+                        <div className="flex flex-col gap-0.5">
+                          {[0, 1, 2].map(idx => {
+                            const val = result.reports[idx]?.details?.cumulativeReturn;
+                            return (
+                              <div key={`cumRet-${strategy.id}-${idx}`} className="flex items-center justify-center gap-1 leading-none h-3">
+                                <span className={`text-[10px] font-black tabular-nums ${val > 0 ? 'text-red-500' : val < 0 ? 'text-emerald-500' : 'text-slate-400'}`}>
+                                  {val !== undefined ? (val > 0 ? '+' : '') + val.toFixed(1) + '%' : '-'}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : <div className="text-center text-slate-200">-</div>}
+                    </td>
+
+                    <td className="px-0.5 py-4">
+                      {result?.reports ? (
+                        <div className="flex flex-col gap-0.5">
+                          {[0, 1, 2].map(idx => {
+                            const val = result.reports[idx]?.backtest?.recommendedGridSize;
+                            return (
+                              <div key={`recGrid-${strategy.id}-${idx}`} className="flex items-center justify-center gap-1 leading-none h-3">
+                                <span className="text-[10px] font-black tabular-nums text-blue-600">
+                                  {val ? val.toFixed(2) + '%' : '-'}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : <div className="text-center text-slate-200">-</div>}
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-
-          <div className="p-6 border-t border-slate-100 bg-slate-50 space-y-4">
-            <textarea 
-              value={symbolsInput}
-              onChange={(e) => setSymbolsInput(e.target.value)}
-              placeholder="继续添加证券代码，以空格分隔..."
-              className="w-full h-24 p-4 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-300 outline-none transition-all font-mono placeholder:text-slate-400 placeholder:font-sans resize-none text-sm"
-            />
-            <button 
-              onClick={() => {
-                const newSymbols = cleanSymbols(symbolsInput);
-                if (newSymbols.length > 0) {
-                  setSymbolsInput('');
-                  const nonDuplicateSymbols = newSymbols.filter(s => !analyzedSymbols.includes(s));
-                  if (nonDuplicateSymbols.length > 0) {
-                    setAnalyzedSymbols(prev => [...prev, ...nonDuplicateSymbols]);
-                    handleStartAnalysis(nonDuplicateSymbols);
-                  }
-                }
-              }}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md shadow-blue-600/10 transition-all flex items-center justify-center gap-2 text-sm"
-            >
-              <Search className="w-4 h-4" />
-              添加并诊断
-            </button>
-          </div>
         </div>
 
         {/* Confirmation Modal */}
         <AnimatePresence>
           {showConfirmDelete && (
             <motion.div 
+              key="confirm-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -1064,6 +1802,8 @@ export default function App() {
 
   return (
     <div className="h-[100dvh] bg-slate-50 text-slate-900 font-sans overflow-hidden flex flex-col antialiased">
+      {renderNavDrawer()}
+      <TrendInstructionModal isOpen={showTrendHelpModal} onClose={() => setShowTrendHelpModal(false)} />
       <AnimatePresence mode="wait">
         {view === AppView.HOME && (
           <motion.div key="home" className="flex-1 flex flex-col" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -1071,8 +1811,88 @@ export default function App() {
           </motion.div>
         )}
         {view === AppView.SUMMARY && (
-          <motion.div key="summary" className="flex-1 flex flex-col overflow-hidden" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+          <motion.div key="summary" className="flex-1 flex flex-col overflow-hidden min-w-0 w-full" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
             {renderSummary()}
+          </motion.div>
+        )}
+        {view === AppView.TREND && (
+          <motion.div key="trend" className="flex-1 flex flex-col min-h-0 min-w-0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            {renderTrend()}
+          </motion.div>
+        )}
+        {view === AppView.DECISION_FLOW && decisionFlowSymbol && (
+          <motion.div key="decision-flow" className="flex-1 flex flex-col min-h-0 min-w-0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            {(() => {
+              const indicator = trendIndicators.find(ti => ti.symbol === decisionFlowSymbol);
+              if (!indicator) {
+                return (
+                  <div className="flex-1 flex items-center justify-center bg-slate-100">
+                    <div className="text-center">
+                      <p className="text-slate-500 mb-2">未找到指标数据</p>
+                      <button
+                        onClick={() => {
+                          setView(AppView.TREND);
+                          setDecisionFlowSymbol(null);
+                        }}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold"
+                      >
+                        返回列表
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <DecisionFlowPanel
+                  symbol={decisionFlowSymbol}
+                  indicator={indicator}
+                  onBack={() => {
+                    setView(AppView.TREND);
+                    setDecisionFlowSymbol(null);
+                  }}
+                  onOpenDoc={() => setView(AppView.ARCHITECTURE_DOC)}
+                />
+              );
+            })()}
+          </motion.div>
+        )}
+        {view === AppView.ARCHITECTURE_DOC && (
+          <motion.div key="architecture-doc" className="flex-1 flex flex-col min-h-0 min-w-0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            <ArchitectureDocPanel
+              onBack={() => {
+                if (decisionFlowSymbol) {
+                  setView(AppView.DECISION_FLOW);
+                } else {
+                  setView(AppView.TREND);
+                }
+              }}
+              onOpenGuide={() => setView(AppView.APPLICATION_GUIDE)}
+            />
+          </motion.div>
+        )}
+        {view === AppView.APPLICATION_GUIDE && (
+          <motion.div key="application-guide" className="flex-1 flex flex-col min-h-0 min-w-0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            <ApplicationGuidePanel
+              onBack={() => setView(AppView.ARCHITECTURE_DOC)}
+            />
+          </motion.div>
+        )}
+        {view === AppView.TREND_SETTINGS && (
+          <motion.div key="trend-settings" className="flex-1 flex flex-col min-h-0 min-w-0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            <SettingsPanel
+              params={trendParams}
+              onParamsChange={(newParams) => {
+                setTrendParams(newParams);
+                localStorage.setItem('grid_trend_params', JSON.stringify(newParams));
+              }}
+              onBack={() => setView(AppView.TREND)}
+              onRefresh={() => {
+                for (const sym of trendSymbols) {
+                  handleTrendRefresh(sym);
+                }
+                setView(AppView.TREND);
+              }}
+            />
           </motion.div>
         )}
         {(view === AppView.SETTING || view === AppView.GRID || view === AppView.REPORT) && (
@@ -1256,7 +2076,7 @@ export default function App() {
                               );
 
                               return (
-                                <React.Fragment key={row.level}>
+                                <React.Fragment key={`${row.level}-${idx}`}>
                                   <tr 
                                     className={`transition-colors hover:bg-slate-50 ${row.level === 0 ? 'bg-amber-50/50' : (isBelowMaxDrawdown ? 'bg-red-50/50' : '')}`}
                                   >
@@ -1338,8 +2158,8 @@ export default function App() {
                                     </td>
                                   </tr>
                                   
-                                  {matchingMarkers.map(m => (
-                                    <tr key={m.label} className="bg-white">
+                                  {matchingMarkers.map((m, mIdx) => (
+                                    <tr key={`${m.label}-${row.level}-${mIdx}`} className="bg-white">
                                       <td colSpan={5} className="py-2.5 px-0 relative">
                                         <div className={`mx-2 border-t-2 border-dashed ${m.color.split(' ')[0]} opacity-60`}></div>
                                         <div className={`absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 px-2.5 py-0.5 rounded-full border text-[9px] font-black ${m.color} shadow-sm whitespace-nowrap z-10 flex items-center gap-1`}>
@@ -1466,9 +2286,10 @@ function CopyableValue({ value, displayValue }: { value: string, displayValue?: 
       className="inline-flex items-center gap-1 cursor-pointer hover:text-blue-600 transition-colors group relative active:scale-95 transform"
     >
       <span className="tabular-nums">{displayValue || value}</span>
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {copied ? (
           <motion.span
+            key="copied"
             initial={{ opacity: 0, scale: 0.5, x: 5 }}
             animate={{ opacity: 1, scale: 1, x: 0 }}
             exit={{ opacity: 0, scale: 0.5 }}
@@ -1477,7 +2298,15 @@ function CopyableValue({ value, displayValue }: { value: string, displayValue?: 
             <Check className="w-3 h-3 text-green-500" />
           </motion.span>
         ) : (
-          <Copy className="w-2.5 h-2.5 opacity-0 group-hover:opacity-40 transition-opacity" />
+          <motion.span 
+            key="copy"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex items-center"
+          >
+            <Copy className="w-2.5 h-2.5 opacity-0 group-hover:opacity-40 transition-opacity" />
+          </motion.span>
         )}
       </AnimatePresence>
     </div>

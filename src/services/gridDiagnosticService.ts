@@ -6,6 +6,7 @@ export interface RawData {
   high: number;
   low: number;
   change_pct: number;
+  volume: number;
 }
 
 export interface DiagnosisReport {

@@ -28,9 +28,8 @@ const MetricCard = ({ item }: { item: any }) => {
         </div>
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
           {item.items ? (
-            item.items.map((it: any, idx: number) => (
-              <React.Fragment key={idx}>
-                {idx > 0 && <span className="text-slate-200 text-xs px-0.5">/</span>}
+            item.items.map((it: any, itIdx: number) => (
+              <React.Fragment key={`${item.label}-${it.label}-${itIdx}`}>
                 <div className="flex items-baseline gap-1">
                   <span className="text-[10px] text-slate-400 font-medium tracking-normal font-sans">{it.label}</span>
                   <span className="text-sm font-black text-slate-900 tabular-nums tracking-tight">{it.value}</span>
@@ -45,8 +44,8 @@ const MetricCard = ({ item }: { item: any }) => {
       
       {showDef && item.info && (
         <div className="bg-slate-50 border border-slate-100 text-[11px] text-slate-600 p-3 mb-3 rounded-lg leading-relaxed shadow-inner">
-          {item.info.definition.map((line: string, idx: number) => (
-            <p key={idx} className={idx === 0 ? "font-bold text-slate-700 mb-1" : ""}>{line}</p>
+          {item.info.definition.map((line: string, index: number) => (
+            <p key={`${line.substring(0, 10)}-${index}`} className={item.info.definition.indexOf(line) === 0 ? "font-bold text-slate-700 mb-1" : ""}>{line}</p>
           ))}
         </div>
       )}
@@ -69,13 +68,13 @@ const MetricCard = ({ item }: { item: any }) => {
                 观测标准
               </div>
               <ul className="space-y-1 text-[10px] text-slate-600">
-                {item.info.standards.map((s: string, idx: number) => {
+                {item.info.standards.map((s: string, index: number) => {
                   const match = s.match(/(.+?) \(\+(\d+)分\) ✓/);
                   if (match) {
                     const text = match[1];
                     const score = match[2];
                     return (
-                      <li key={idx} className="flex gap-1">
+                      <li key={`std-${index}`} className="flex gap-1">
                         <span className="opacity-40 shrink-0">•</span>
                         <div className="flex flex-wrap items-center gap-1.5 leading-tight">
                           <span>{text}</span>
@@ -88,7 +87,7 @@ const MetricCard = ({ item }: { item: any }) => {
                   }
                   
                   return (
-                    <li key={idx} className="flex gap-1">
+                    <li key={`std-${index}`} className="flex gap-1">
                       <span className="opacity-40 shrink-0">•</span>
                       <span>
                         {s.includes(' ✓') ? (
@@ -173,11 +172,11 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, is
             >
               对比模式
             </button>
-            {timeframes.map((tf, idx) => (
+                        {timeframes.map((tf) => (
               <button 
-                key={idx}
-                onClick={() => setActiveTimeframe(idx)}
-                className={`px-3.5 py-1.5 text-[11px] font-bold rounded-lg transition-colors whitespace-nowrap ${activeTimeframe === idx ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                key={tf.label}
+                onClick={() => setActiveTimeframe(timeframes.indexOf(tf))}
+                className={`px-3.5 py-1.5 text-[11px] font-bold rounded-lg transition-colors whitespace-nowrap ${activeTimeframe === timeframes.indexOf(tf) ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
               >
                 {tf.label}
               </button>
@@ -209,8 +208,8 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, is
                     <thead>
                       <tr className="bg-slate-50/80 border-y border-slate-100">
                         <th className="py-2.5 px-3 text-[11px] font-bold text-slate-400 text-left uppercase tracking-wider rounded-l-lg border-y border-l border-slate-100/50">评估维度</th>
-                        {timeframes.map((tf, idx) => (
-                          <th key={idx} className={`py-2.5 px-0.5 text-xs font-black text-slate-400 tabular-nums uppercase tracking-widest border-y border-slate-100/50 ${idx === timeframes.length - 1 ? 'rounded-r-lg border-r' : ''}`}>
+                                                {timeframes.map((tf) => (
+                          <th key={tf.label} className={`py-2.5 px-0.5 text-xs font-black text-slate-400 tabular-nums uppercase tracking-widest border-y border-slate-100/50 ${timeframes.indexOf(tf) === timeframes.length - 1 ? 'rounded-r-lg border-r' : ''}`}>
                             {tf.label.replace('最近', '')}
                           </th>
                         ))}
@@ -220,16 +219,16 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, is
                       <tr><td className="h-2" colSpan={timeframes.length + 1}></td></tr>
                       <tr className="bg-blue-50/50">
                         <td className="py-3 px-3 text-xs font-black text-blue-700 text-left rounded-l-lg">总计</td>
-                        {reports.map((r, idx) => (
-                          <td key={idx} className={`py-3 px-0.5 ${idx === reports.length - 1 ? 'rounded-r-lg' : ''}`}>
+                                                {reports.map((r, idx) => (
+                          <td key={`report-score-${idx}`} className={`py-3 px-0.5 ${idx === reports.length - 1 ? 'rounded-r-lg' : ''}`}>
                             <span className="text-xl font-black text-blue-700 leading-none">{r.score}</span>
                           </td>
                         ))}
                       </tr>
                       <tr>
                         <td className="py-3 px-3 text-xs font-bold text-slate-600 text-left">适合程度</td>
-                        {reports.map((r, idx) => (
-                          <td key={idx} className="py-3 px-0.5">
+                                                {reports.map((r, idx) => (
+                          <td key={`report-rate-${idx}`} className="py-3 px-0.5">
                             <span className={`text-xs font-black ${getRatingColor(r.rating).split(' ')[0]}`}>
                               {r.rating}
                             </span>
@@ -238,8 +237,8 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, is
                       </tr>
                       <tr>
                         <td className="py-3 px-3 text-[11px] font-bold text-slate-500 text-left leading-tight align-middle">建议</td>
-                        {reports.map((r, idx) => (
-                          <td key={idx} className="py-3 px-0.5 text-[11px] font-black text-slate-600 leading-tight align-middle whitespace-nowrap">
+                                                {reports.map((r, idx) => (
+                          <td key={`report-sug-${idx}`} className="py-3 px-0.5 text-[11px] font-black text-slate-600 leading-tight align-middle whitespace-nowrap">
                             {r.suggestion.replace('建议开展网格交易', '开展网格').replace('建议小资金测试', '小量测试').replace('不建议使用网格策略', '不宜网格').replace('建议', '')}
                           </td>
                         ))}
@@ -288,15 +287,15 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, is
                               <span className="text-[9px] opacity-60 font-medium">{dim.scoreLabel}</span>
                             </div>
                           </td>
-                          {reports.map((r, idx) => (
-                            <td key={idx} className="py-3 px-0.5 align-top">
+                                                    {reports.map((r, idx) => (
+                            <td key={`report-dim-${dim.key}-${idx}`} className="py-3 px-0.5 align-top">
                               <div className="flex flex-col items-center">
                                 <span className="inline-block w-full py-0.5 bg-slate-50 rounded text-sm font-black text-slate-800">
                                   {r.detailedScores[dim.key as keyof typeof r.detailedScores]}
                                 </span>
                                 <div className="mt-2 space-y-1">
-                                  {dim.metrics.map((m, mIdx) => (
-                                    <div key={mIdx} className="text-[10px] text-slate-500 font-medium leading-tight flex flex-col items-center text-center">
+                                                                    {dim.metrics.map((m) => (
+                                    <div key={m.key} className="text-[10px] text-slate-500 font-medium leading-tight flex flex-col items-center text-center">
                                       <span className="opacity-70 whitespace-nowrap">{m.label}</span>
                                       <span className="tabular-nums font-bold text-slate-800 text-[11px]">{r.details[m.key as keyof typeof r.details]}{m.unit}</span>
                                     </div>
@@ -560,7 +559,7 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, is
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> 优势指标
                       </h4>
                       <ul className="text-[11px] text-emerald-900 space-y-2">
-                        {report.advantages.map((a,idx) => <li key={idx} className="flex gap-1.5 leading-relaxed"><span className="opacity-40 text-[10px] mt-0.5">•</span> <span>{a}</span></li>)}
+                                                {report.advantages.map((a, index) => <li key={`adv-${a}-${index}`} className="flex gap-1.5 leading-relaxed"><span className="opacity-40 text-[10px] mt-0.5">•</span> <span>{a}</span></li>)}
                       </ul>
                   </div>
                   <div className="bg-rose-50/50 border border-rose-100 p-4.5 rounded-2xl shadow-sm">
@@ -568,8 +567,8 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, is
                           <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span> 风险预警
                       </h4>
                       <ul className="text-[11px] text-rose-900 space-y-2">
-                        {report.risks.length > 0 
-                          ? report.risks.map((r,idx) => <li key={idx} className="flex gap-1.5 leading-relaxed"><span className="opacity-40 text-[10px] mt-0.5">•</span> <span>{r}</span></li>) 
+                                                {report.risks.length > 0 
+                          ? report.risks.map((r, index) => <li key={`risk-${r}-${index}`} className="flex gap-1.5 leading-relaxed"><span className="opacity-40 text-[10px] mt-0.5">•</span> <span>{r}</span></li>) 
                           : <li className="text-slate-400 italic">暂无明显重大风险指标</li>}
                       </ul>
                   </div>
@@ -627,8 +626,8 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, is
                       
                       {/* Statistics */}
                       <div className="flex items-center gap-4 mb-3 flex-wrap bg-slate-50 p-2 rounded-lg">
-                        {i.details.map((it, idx) => (
-                          <div key={idx} className="flex items-baseline gap-1">
+                        {i.details.map((it, itIdx) => (
+                          <div key={`${i.label}-${it.label}-${itIdx}`} className="flex items-baseline gap-1">
                             <span className="text-[11px] text-slate-500 font-medium">{it.label}</span>
                             <span className="text-[13px] font-black text-slate-950 tabular-nums">{it.value}</span>
                           </div>
@@ -656,7 +655,7 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, is
                               const match = s.match(/(.+?) \(\+(\d+)分\) ✓/);
                               if (match) {
                                 return (
-                                  <li key={idx} className="flex gap-1">
+                                  <li key={`std-m-${i.label}-${idx}`} className="flex gap-1">
                                     <span className="opacity-40 shrink-0">•</span>
                                     <div className="flex flex-wrap items-center gap-1.5 leading-tight">
                                       <span>{match[1]}</span>
@@ -668,7 +667,7 @@ export const GridDiagnosisReport: React.FC<Props> = ({ reports, symbol, name, is
                                 );
                               }
                               return (
-                                <li key={idx} className="flex gap-1">
+                                <li key={`std-n-${i.label}-${idx}`} className="flex gap-1">
                                   <span className="opacity-40 shrink-0">•</span>
                                   <span>{s.includes(' ✓') ? (
                                     <>

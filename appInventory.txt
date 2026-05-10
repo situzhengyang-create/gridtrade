@@ -1,0 +1,146 @@
+# GridTrade 应用程序组件及元素详尽清单 (UI 复刻专用版)
+
+此清单包含了 GridTrade 应用中所有页面的 UI 组件、元素及其精确设计规格（基于 Tailwind CSS 类名和设计逻辑），旨在为 UI 复刻提供极度精准的参考。
+
+================================================================================
+0. 全局视觉设计规范 (GLOBAL DESIGN SYSTEM)
+================================================================================
+- 背景色 (Page Bg): `bg-slate-50` (#F8FAFC)
+- 容器背景 (Container Bg): `bg-white` (#FFFFFF)
+- 主色 (Primary): `blue-600` (#2563EB)
+- 辅助色 (Secondary/Neutral): `slate-500` (#64748B) 到 `slate-900` (#0F172A)
+- 语义色 (Semantic):
+  - 成功/非常适合/成交: `emerald-500/600` (#10B981 / #059669)
+  - 警告/勉强适合: `amber-500` (#F59E0B)
+  - 危险/不适合/删除: `rose-500` (#F43F5E)
+- 字体 (Typography): 
+  - 数字: `tabular-nums`
+  - 标题: `font-black` (900), `tracking-tighter`
+  - 正文加粗: `font-bold` (700)
+  - 辅助文字/标签: `text-[10px]` 或 `text-[9px]`
+- 圆角 (Radius): `rounded-xl` (12px), `rounded-2xl` (16px), `rounded-lg` (8px), `rounded-full`
+- 阴影 (Shadow): `shadow-xl`, `shadow-md`, `shadow-[0_2px_8px_-4px_rgba(0,0,0,0.05)]`
+- 动画 (Motion): `AnimatePresence` 处理页面切换，`active:scale-[0.98]` 处理点击反馈。
+
+================================================================================
+1. 首页 (HOME View)
+================================================================================
+【布局】：`flex-1 flex flex-col items-center justify-center p-6 bg-white overflow-y-auto`
+
+- [品牌区域]
+  - Logo 容器: `w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200`
+  - App 标题: `text-4xl font-black text-slate-900 tracking-tighter uppercase`
+
+- [输入区域]
+  - Textarea: `w-full h-40 p-8 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:bg-white outline-none transition-all text-2xl font-mono text-center placeholder:text-slate-300 resize-none`
+  - 交互说明 (Footnote): `text-[10px] font-bold text-slate-400 opacity-80 hover:opacity-100`
+
+- [操作按钮]
+  - 诊断按钮: `w-full py-5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl shadow-xl shadow-blue-100 transition-all active:scale-[0.98] text-lg`
+
+================================================================================
+2. 汇总列表页 (SUMMARY View)
+================================================================================
+【布局】：`flex-1 flex flex-col bg-white overflow-hidden relative`
+
+- [顶部导航栏 Header]
+  - 样式: `px-6 py-4 flex items-center justify-between bg-white border-b border-slate-100 z-50 shrink-0`
+  - 正常标题: `text-xl font-black text-slate-900 uppercase tracking-tighter`
+  - 删除模式标题: `已选择 X 个标的` (文字颜色同正常标题)
+  - 功能按钮组:
+    - 过滤眼睛: `p-2 rounded-full text-slate-400 hover:text-slate-600`. 激活态: `bg-blue-100 text-blue-600`
+    - 标的数量: `flex items-center gap-2 text-[10px] font-black text-slate-300`
+    - 垃圾桶按钮: `p-2 text-slate-400 hover:text-rose-500`
+
+- [统计数据表格 Summary Table]
+  - 表头 行: `bg-slate-50/50 border-b border-slate-100`
+  - 数据行 (Row): `transition-colors hover:bg-slate-50/30`. 删除模式下选中行: `bg-rose-50/30`
+  - 证券 ID 列:
+    - 名称: `text-[13px] font-black text-slate-900 hover:text-blue-600`
+    - 代码: `text-[9px] font-bold text-slate-400 font-mono tabular-nums opacity-80`
+    - 功能图标入口: `flex items-center gap-2 mt-1.5`. 图标样式: `w-3.5 h-3.5 text-slate-300 hover:text-blue-500`
+  - 指标得分 (3Y/2Y/1Y):
+    - 文本: `text-[18px] font-black tabular-nums tracking-tighter`
+    - 动态色: score>=7: `blue-600`; score>=5: `blue-500`; default: `slate-300`
+  - 结论列:
+    - 文本: `text-[10px] font-black whitespace-nowrap`
+    - 颜色映射: 适合 (`text-blue-600`); 勉强 (`text-amber-500`); 不适合 (`text-rose-500`)
+
+- [底部快速添加区]
+  - 容器: `p-6 border-t border-slate-100 bg-slate-50 space-y-4`
+  - 输入框: `w-full h-24 p-4 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 focus:border-blue-300 outline-none text-sm font-mono`
+  - 按钮: `w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md text-sm`
+
+================================================================================
+3. 详情页通用头部 (Active Title Section)
+================================================================================
+【布局】：`px-5 py-3 border-b border-slate-200 flex items-center justify-between bg-white/90 backdrop-blur-md sticky top-0 z-50`
+
+- [左侧标题区]
+  - 返回按钮: `w-8 h-8 flex items-center justify-center hover:bg-slate-100 rounded-lg border border-slate-200`
+  - 价格信息: `text-[10px] font-bold text-blue-600 tabular-nums border-l border-slate-200 pl-2`
+  - 刷新定时: `text-[9px] text-slate-400 tabular-nums`
+
+- [右侧 Tab 切换]
+  - 容器: `flex bg-slate-100 rounded-lg p-0.5 gap-0.5`
+  - 选项: `p-1.5 px-3 rounded-md transition-all text-[10px] font-bold`
+  - 选中: `bg-white shadow-sm text-blue-600`. 未选中: `text-slate-500`
+
+================================================================================
+4. 诊断报告详情 (REPORT Sub-view)
+================================================================================
+
+- [周期选择条]
+  - 容器: `bg-white px-5 py-3.5 border-b border-slate-100`
+  - 按钮: `px-3.5 py-1.5 text-[11px] font-bold rounded-lg`
+  - 选中: `bg-blue-600 text-white shadow-sm`. 未选中: `bg-slate-100 text-slate-600`
+
+- [评分逻辑折叠面板]
+  - 容器: `bg-blue-50/40 border border-blue-100/60 p-4 rounded-xl`
+  - 维度规则文本: `text-[11px] text-slate-600 font-mono bg-white p-3 rounded-lg shadow-sm`
+
+- [指标卡片]
+  - 基准数展示: `flex items-center gap-4 mb-3 flex-wrap bg-slate-50 p-2 rounded-lg`
+  - 加分项徽章: `inline-flex items-center gap-0.5 font-bold text-emerald-600 bg-emerald-50 px-1 py-0 rounded border border-emerald-100/60 shadow-sm text-[9px]`
+
+================================================================================
+5. 策略设置子页 (SETTING Sub-view)
+================================================================================
+
+- [参数输入框 InputWrapper]
+  - 标签: `text-[11px] font-extrabold text-slate-500 uppercase tracking-tight`
+  - 辅助说明 (Sub-label): `text-[10px] text-slate-400 leading-none truncate`
+  - 输入框本体: `.input-field` -> `w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none text-sm font-medium`
+
+- [底部保存栏]
+  - 容器: `shrink-0 p-4 bg-white border-t border-slate-200 shadow-[0_-4px_20px_-8px_rgba(0,0,0,0.05)]`
+  - 执行按钮: `w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-blue-500/30 text-base`
+
+================================================================================
+6. 网格方案跟踪页 (GRID Sub-view)
+================================================================================
+
+- [网格表头]
+  - 样式: `bg-blue-600 border-b border-blue-700 text-white`
+  - 文本: `px-1 py-2 text-[11px] font-bold tracking-wider opacity-90`
+
+- [层级行细节]
+  - 层级数字: `font-mono text-slate-500 font-bold text-center`
+  - 跌幅提示: `text-[10px] font-normal tracking-tighter text-slate-400`
+  - 价格/金额: `font-black text-slate-900 tabular-nums cursor-copy` (Hover 时触发 Copy 动画反馈)
+  - 累计资金: `text-[10px] text-slate-400 font-normal tracking-tighter opacity-80`
+
+- [状态标记]
+  - 已挂单 (Check): `w-5 h-5 rounded-md border`. 选中: `bg-blue-600 border-blue-600`
+  - 已触发 (Trigger): `w-5 h-5 rounded-full border`. 选中: `bg-green-500 border-green-500 text-white`
+
+- [回撤预警分割线]
+  - 容器: `absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 px-2.5 py-0.5 rounded-full border text-[9px] font-black shadow-sm z-10`
+  - 颜色映射: 1Y(Amber), 2Y(Red), 3Y(Purple)
+
+================================================================================
+8. 交互反馈与动画 (INTERACTION)
+================================================================================
+- [数值复制反馈]: 点击价格/金额，数值右侧出现 `Check` 图标 (`motion` 进场)，持续 2s 后消失。
+- [详情页滑动手势]: 横向滑差 > 40px，持续时间 < 500ms 触发标的前后切换。
+- [弹窗阴影]: 所有 Modal 使用 `shadow-2xl` 配合 `backdrop-blur-sm` 以增强景深。

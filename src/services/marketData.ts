@@ -236,6 +236,7 @@ export async function fetchDiagnosticData(symbol: string): Promise<RawData[] | n
         close: parseFloat(parts[2]),
         high: parseFloat(parts[3]),
         low: parseFloat(parts[4]),
+        volume: parseFloat(parts[5] || '0'),
         change_pct: parseFloat(parts[8]) // f59 is percentage change
       };
     });
