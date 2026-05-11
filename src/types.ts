@@ -75,6 +75,11 @@ export interface MA20Signal {
     slope_short: number;
     slope_long: number;
   };
+  risk_warnings: {
+    slope_reversal: 'warning' | 'none';
+    slope_deceleration: 'warning' | 'none';
+    description: string;
+  };
   calculation_time: string;
 }
 
@@ -176,6 +181,10 @@ export interface ADXSignal {
     action: string;
     reasoning: string[];
   };
+  risk_warnings: {
+    adx_extreme: 'warning' | 'none';
+    description: string;
+  };
 }
 
 export interface BollingerSignal {
@@ -203,6 +212,11 @@ export interface BollingerSignal {
   indicators: {
     experience_condition: string;
     percentile_condition: string;
+  };
+  risk_warnings: {
+    breakdown_below_lower: 'warning' | 'none';
+    breakout_above_upper: 'warning' | 'none';
+    description: string;
   };
 }
 

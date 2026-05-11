@@ -1,75 +1,92 @@
-import { RawData, TrendIndicator, MA20Signal, MACDSignal, BollingerSignal, ADXSignal } from '../types';
+import { RawData, TrendIndicator, MA20Signal, MACDSignal, ADXSignal, BollingerSignal } from '../types';
 import { TrendParams, defaultTrendParams } from '../types/params';
 
-export function calculateSMA(data: number[], periods: number): number[] {
-  const sma = [];
+function calculateSMA(data: number[], period: number): number[] {
+  const sma: number[] = [];
   for (let i = 0; i < data.length; i++) {
-    if (i < periods - 1) {
+    if (i < period - 1) {
       sma.push(NaN);
-      continue;
+    } else {
+      let sum = 0;
+      for (let j = 0; j < period; j++) {
+        sum += data[i - j];
+      }
+      sma.push(sum / period);
     }
-    const window = data.slice(i - periods + 1, i + 1);
-    const sum = window.reduce((a, b) => a + b, 0);
-    sma.push(sum / periods);
   }
   return sma;
 }
 
-export function calculateEMA(data: number[], periods: number): number[] {
-  const ema = [];
-  const multiplier = 2 / (periods + 1);
-
+function calculateEMA(data: number[], period: number): number[] {
+  const ema: number[] = [];
+  const multiplier = 2 / (period + 1);
   for (let i = 0; i < data.length; i++) {
     if (i === 0) {
-      ema.push(data[0]);
-      continue;
+      ema.push(data[i]);
+    } else if (i < period) {
+      let sum = 0;
+      for (let j = 0; j <= i; j++) {
+        sum += data[j];
+      }
+      ema.push(sum / (i + 1));
+    } else {
+      ema.push((data[i] - ema[i - 1]) * multiplier + ema[i - 1]);
     }
-    if (i < periods - 1) {
-      ema.push(NaN);
-      continue;
-    }
-    const currentEMA = (data[i] - ema[i - 1]) * multiplier + ema[i - 1];
-    ema.push(currentEMA);
   }
   return ema;
 }
 
-export function calculateStdDev(data: number[], periods: number): number[] {
-  const stdDev = [];
+function calculateStdDev(data: number[], period: number): number[] {
+  const sma = calculateSMA(data, period);
+  const stdDev: number[] = [];
   for (let i = 0; i < data.length; i++) {
-    if (i < periods - 1) {
+    if (i < period - 1) {
       stdDev.push(NaN);
-      continue;
+    } else {
+      let sum = 0;
+      for (let j = 0; j < period; j++) {
+        const diff = data[i - j] - sma[i];
+        sum += diff * diff;
+      }
+      stdDev.push(Math.sqrt(sum / period));
     }
-    const window = data.slice(i - periods + 1, i + 1);
-    const mean = window.reduce((a, b) => a + b, 0) / periods;
-    const variance = window.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / periods;
-    stdDev.push(Math.sqrt(variance));
   }
   return stdDev;
 }
 
-export function calculateNormalizedSlope(data: number[], periods: number): number | null {
-  const windowData = data.slice(-periods);
-  if (windowData.length < periods) return null;
-
+function calculateNormalizedSlope(data: number[], window: number): number | null {
+  if (data.length < window || window <= 0) return null;
+  const recentData = data.slice(-window);
+  const n = recentData.length;
+  if (n === 0) return null;
   let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-  const n = periods;
-  const base = windowData[0];
-
-  if (!base) return 0;
-
   for (let i = 0; i < n; i++) {
-    const x = i + 1;
-    const y = (windowData[i] / base) - 1;
-    sumX += x;
-    sumY += y;
-    sumXY += x * y;
-    sumX2 += x * x;
+    sumX += i;
+    sumY += recentData[i];
+    sumXY += i * recentData[i];
+    sumX2 += i * i;
   }
+  const denominator = n * sumX2 - sumX * sumX;
+  if (denominator === 0) return null;
+  const slope = (n * sumXY - sumX * sumY) / denominator;
+  const avgY = sumY / n;
+  if (avgY === 0) return null;
+  return slope / avgY;
+}
 
-  const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-  return slope;
+function calculateATR(high: number[], low: number[], close: number[], period: number = 14): number[] {
+  const tr: number[] = [];
+  for (let i = 0; i < high.length; i++) {
+    if (i === 0) {
+      tr.push(high[i] - low[i]);
+    } else {
+      const tr1 = high[i] - low[i];
+      const tr2 = Math.abs(high[i] - close[i - 1]);
+      const tr3 = Math.abs(low[i] - close[i - 1]);
+      tr.push(Math.max(tr1, tr2, tr3));
+    }
+  }
+  return calculateEMA(tr, period);
 }
 
 function generateMA20Signal(ma20Data: number[], params: TrendParams = defaultTrendParams): MA20Signal {
@@ -91,6 +108,11 @@ function generateMA20Signal(ma20Data: number[], params: TrendParams = defaultTre
         slope_main: 0,
         slope_short: 0,
         slope_long: 0
+      },
+      risk_warnings: {
+        slope_reversal: 'none',
+        slope_deceleration: 'none',
+        description: '数据不足，无法判定'
       },
       calculation_time: new Date().toLocaleString('zh-CN')
     };
@@ -226,238 +248,125 @@ function generateMACDSignal(closes: number[], volumes: number[], params: TrendPa
     };
   }
 
-  const ema12 = calculateEMA(closes, 12);
-  const ema26 = calculateEMA(closes, 26);
-  const dif: number[] = [];
-  for (let i = 0; i < closes.length; i++) {
-    dif.push(ema12[i] - ema26[i]);
-  }
-  const dea = calculateEMA(dif, 9);
-  const histogram: number[] = [];
-  for (let i = 0; i < dif.length; i++) {
-    histogram.push(dif[i] - dea[i]);
-  }
+  const { fastPeriod, slowPeriod, signalPeriod } = params.macd;
+  const dif = calculateEMA(closes, fastPeriod).map((v, i) => v - calculateEMA(closes, slowPeriod)[i]);
+  const dea = calculateEMA(dif, signalPeriod);
+  const histogram = dif.map((v, i) => v - dea[i]);
 
   const n = closes.length;
-  const currentDif = dif[n - 1];
-  const currentDea = dea[n - 1];
-  const currentHist = histogram[n - 1];
+  const lastDif = dif[n - 1];
   const prevDif = dif[n - 2];
+  const lastDea = dea[n - 1];
   const prevDea = dea[n - 2];
+  const lastHist = histogram[n - 1];
   const prevHist = histogram[n - 2];
 
-  let crossSignal: MACDSignal['signals']['cross_signal'];
-  let crossScore = 0;
-  if (prevDif <= prevDea && currentDif > currentDea) {
-    crossSignal = {
-      type: 'golden',
-      strength: currentDif - currentDea,
-      description: `DIF上穿DEA形成金叉（强度：${(currentDif - currentDea).toFixed(4)}）`
-    };
-    crossScore = 0.3;
-  } else if (prevDif >= prevDea && currentDif < currentDea) {
-    crossSignal = {
-      type: 'dead',
-      strength: currentDea - currentDif,
-      description: `DIF下穿DEA形成死叉（强度：${(currentDea - currentDif).toFixed(4)}）`
-    };
-    crossScore = -0.3;
-  } else {
-    crossSignal = {
-      type: 'none',
-      strength: Math.abs(currentDif - currentDea),
-      description: '无交叉信号'
-    };
+  let crossType: 'golden' | 'dead' | 'none' = 'none';
+  let crossStrength = 0;
+  if (prevDif <= prevDea && lastDif > lastDea) {
+    crossType = 'golden';
+    crossStrength = lastDif - lastDea;
+  } else if (prevDif >= prevDea && lastDif < lastDea) {
+    crossType = 'dead';
+    crossStrength = lastDea - lastDif;
   }
 
-  let positionSignal: MACDSignal['signals']['position_signal'];
-  let positionScore = 0;
-  if (currentDif > 0 && currentDea > 0) {
-    positionSignal = {
-      type: 'above_zero',
-      bias: 'bullish',
-      description: '位于零轴上方，多头区域'
-    };
-    positionScore = 0.2;
-  } else if (currentDif < 0 && currentDea < 0) {
-    positionSignal = {
-      type: 'below_zero',
-      bias: 'bearish',
-      description: '位于零轴下方，空头区域'
-    };
-    positionScore = -0.2;
-  } else {
-    positionSignal = {
-      type: 'near_zero',
-      bias: 'neutral',
-      description: '位于零轴附近，中性区域'
-    };
+  let positionType: 'above_zero' | 'below_zero' | 'near_zero' = 'near_zero';
+  let positionBias: 'bullish' | 'bearish' | 'neutral' = 'neutral';
+  if (lastDif > 0 && lastDea > 0) {
+    positionType = 'above_zero';
+    positionBias = 'bullish';
+  } else if (lastDif < 0 && lastDea < 0) {
+    positionType = 'below_zero';
+    positionBias = 'bearish';
   }
 
-  let divergenceSignal: MACDSignal['signals']['divergence_signal'];
-  let divergenceScore = 0;
-  const lookback = 30;
-  const startIdx = Math.max(0, n - lookback);
+  let momentumTrend: 'accelerating' | 'decelerating' | 'stable' | 'reversal' = 'stable';
+  if (Math.abs(lastHist) > Math.abs(prevHist)) {
+    momentumTrend = 'accelerating';
+  } else if (Math.abs(lastHist) < Math.abs(prevHist)) {
+    momentumTrend = 'decelerating';
+  }
+
+  const vol5Avg = volumes.slice(-5).reduce((a, b) => a + b, 0) / 5;
+  const volChange = vol5Avg > 0 ? (volumes[n - 1] - vol5Avg) / vol5Avg : 0;
+
+  const lookback30 = Math.max(0, n - 30);
   let priceHigh = -Infinity, priceLow = Infinity;
-  let macdHigh = -Infinity, macdLow = Infinity;
-  for (let i = startIdx; i < n; i++) {
+  let histHighIdx = -1, histLowIdx = -1;
+  for (let i = lookback30; i < n; i++) {
     if (closes[i] > priceHigh) priceHigh = closes[i];
     if (closes[i] < priceLow) priceLow = closes[i];
-    if (dif[i] > macdHigh) macdHigh = dif[i];
-    if (dif[i] < macdLow) macdLow = dif[i];
+    if (histogram[i] > (histogram[histHighIdx] || -Infinity)) histHighIdx = i;
+    if (histogram[i] < (histogram[histLowIdx] || Infinity)) histLowIdx = i;
   }
 
-  if (closes[n - 1] >= priceHigh * 0.98 && dif[n - 1] < macdHigh * 0.95) {
-    divergenceSignal = {
-      type: 'top',
-      confidence: 0.8,
-      description: '价格创近期新高但MACD未创新高，顶背离预警'
-    };
-    divergenceScore = -0.25;
-  } else if (closes[n - 1] <= priceLow * 1.02 && dif[n - 1] > macdLow * 1.05) {
-    divergenceSignal = {
-      type: 'bottom',
-      confidence: 0.8,
-      description: '价格创近期新低但MACD未创新低，底背离预警'
-    };
-    divergenceScore = 0.25;
-  } else {
-    divergenceSignal = {
-      type: 'none',
-      confidence: 0,
-      description: '无背离信号'
-    };
+  let divergenceType: 'top' | 'bottom' | 'none' = 'none';
+  let divergenceConfidence = 0;
+  if (closes[n - 1] >= priceHigh * 0.98 && histogram[n - 1] < histogram[histHighIdx] * 0.95) {
+    divergenceType = 'top';
+    divergenceConfidence = 0.8;
+  } else if (closes[n - 1] <= priceLow * 1.02 && histogram[n - 1] > histogram[histLowIdx] * 1.05) {
+    divergenceType = 'bottom';
+    divergenceConfidence = 0.8;
   }
 
-  let momentumSignal: MACDSignal['signals']['momentum_signal'];
-  let momentumScore = 0;
-  const histChange = currentHist - prevHist;
-  const histChangeRate = prevHist !== 0 ? histChange / Math.abs(prevHist) : 0;
-
-  if (histChangeRate > 0.05 && Math.sign(currentHist) === Math.sign(prevHist)) {
-    momentumSignal = {
-      trend: 'accelerating',
-      histogram_change: histChange,
-      description: `柱状图加速扩大（+${histChange.toFixed(4)}）`
-    };
-    momentumScore = 0.15;
-  } else if (histChangeRate < -0.05 && Math.sign(currentHist) === Math.sign(prevHist)) {
-    momentumSignal = {
-      trend: 'decelerating',
-      histogram_change: histChange,
-      description: `柱状图减速收缩（${histChange.toFixed(4)}）`
-    };
-    momentumScore = -0.15;
-  } else if (Math.sign(currentHist) !== Math.sign(prevHist) && prevHist !== 0) {
-    momentumSignal = {
-      trend: 'reversal',
-      histogram_change: histChange,
-      description: `柱状图发生反转（${histChange.toFixed(4)}）`
-    };
-    momentumScore = currentHist > 0 ? 0.1 : -0.1;
-  } else {
-    momentumSignal = {
-      trend: 'stable',
-      histogram_change: histChange,
-      description: '柱状图动量稳定'
-    };
-  }
-
-  let volumeSignal: MACDSignal['signals']['volume_signal'];
-  let volumeScore = 0;
-  const volMa5 = calculateSMA(volumes.slice(-6).slice(0, -1), 5);
-  const lastVolMa5 = volMa5[volMa5.length - 1];
-  if (lastVolMa5 > 0) {
-    const volChange = (volumes[n - 1] - lastVolMa5) / lastVolMa5;
-    if (crossSignal.type !== 'none') {
-      if ((crossSignal.type === 'golden' && volChange > 0) || (crossSignal.type === 'dead' && volChange > 0)) {
-        volumeSignal = {
-          confirmed: true,
-          volume_change: volChange,
-          description: `成交量放大${(volChange * 100).toFixed(1)}%，信号增强`
-        };
-        volumeScore = 0.1;
-      } else {
-        volumeSignal = {
-          confirmed: false,
-          volume_change: volChange,
-          description: `成交量变化${(volChange * 100).toFixed(1)}%，无明显放量`
-        };
-      }
-    } else {
-      volumeSignal = {
-        confirmed: false,
-        volume_change: volChange,
-        description: '无交叉信号，成交量参考价值低'
-      };
-    }
-  } else {
-    volumeSignal = {
-      confirmed: false,
-      volume_change: 0,
-      description: '成交量数据不足'
-    };
-  }
-
-  const totalScore = crossScore + positionScore + divergenceScore + momentumScore + volumeScore;
-
-  let level: MACDSignal['comprehensive_signal']['level'];
-  let action: string;
-  if (totalScore >= 0.7) {
-    level = 'strong_bullish';
-    action = '买入或加仓';
-  } else if (totalScore >= 0.3) {
-    level = 'bullish';
-    action = '考虑买入';
-  } else if (totalScore >= -0.3) {
-    level = 'neutral';
-    action = '观望';
-  } else if (totalScore >= -0.7) {
-    level = 'bearish';
-    action = '考虑卖出';
-  } else {
-    level = 'strong_bearish';
-    action = '卖出或减仓';
-  }
-
-  let confidence: 'high' | 'medium' | 'low';
-  if (crossSignal.type !== 'none' && Math.abs(crossSignal.strength) > 0.05 && volumeSignal.confirmed) {
-    confidence = 'high';
-  } else if (crossSignal.type !== 'none' || divergenceSignal.type !== 'none') {
-    confidence = 'medium';
-  } else {
-    confidence = 'low';
-  }
-
+  let score = 0;
   const reasoning: string[] = [];
-  if (crossSignal.type !== 'none') {
-    reasoning.push(crossSignal.description);
-  }
-  reasoning.push(positionSignal.description);
-  if (divergenceSignal.type !== 'none') {
-    reasoning.push(divergenceSignal.description);
-  }
-  reasoning.push(momentumSignal.description);
+
+  if (crossType === 'golden') { score += 0.3; reasoning.push('MACD金叉'); }
+  else if (crossType === 'dead') { score -= 0.3; reasoning.push('MACD死叉'); }
+
+  if (positionBias === 'bullish') { score += 0.2; reasoning.push('零轴上方'); }
+  else if (positionBias === 'bearish') { score -= 0.2; reasoning.push('零轴下方'); }
+
+  if (divergenceType === 'bottom') { score += 0.25; reasoning.push('底背离'); }
+  else if (divergenceType === 'top') { score -= 0.25; reasoning.push('顶背离'); }
+
+  if (momentumTrend === 'accelerating') { score += 0.15; reasoning.push('动量加速'); }
+  else if (momentumTrend === 'decelerating') { score -= 0.15; reasoning.push('动量减速'); }
+
+  if (volChange >= 0.3) { score += 0.1; reasoning.push('成交量放大'); }
 
   return {
     date: new Date().toISOString().split('T')[0],
     macd_values: {
-      dif: currentDif,
-      dea: currentDea,
-      histogram: currentHist
+      dif: lastDif,
+      dea: lastDea,
+      histogram: lastHist
     },
     signals: {
-      cross_signal: crossSignal,
-      position_signal: positionSignal,
-      divergence_signal: divergenceSignal,
-      momentum_signal: momentumSignal,
-      volume_signal: volumeSignal
+      cross_signal: {
+        type: crossType,
+        strength: crossStrength,
+        description: crossType === 'golden' ? 'MACD金叉' : crossType === 'dead' ? 'MACD死叉' : '无交叉信号'
+      },
+      position_signal: {
+        type: positionType,
+        bias: positionBias,
+        description: positionType === 'above_zero' ? '零轴上方' : positionType === 'below_zero' ? '零轴下方' : '零轴附近'
+      },
+      divergence_signal: {
+        type: divergenceType,
+        confidence: divergenceConfidence,
+        description: divergenceType === 'top' ? '顶背离' : divergenceType === 'bottom' ? '底背离' : '无背离'
+      },
+      momentum_signal: {
+        trend: momentumTrend,
+        histogram_change: lastHist - prevHist,
+        description: momentumTrend === 'accelerating' ? '动量加速' : momentumTrend === 'decelerating' ? '动量减速' : '动量稳定'
+      },
+      volume_signal: {
+        confirmed: volChange >= 0.3,
+        volume_change: volChange,
+        description: volChange >= 0.3 ? '成交量放大' : volChange <= -0.3 ? '成交量萎缩' : '成交量平稳'
+      }
     },
     comprehensive_signal: {
-      score: totalScore,
-      level,
-      confidence,
-      action,
+      score,
+      level: score >= 0.7 ? 'strong_bullish' : score >= 0.3 ? 'bullish' : score >= -0.3 ? 'neutral' : score >= -0.7 ? 'bearish' : 'strong_bearish',
+      confidence: score > 0.5 || score < -0.5 ? 'high' : Math.abs(score) > 0.2 ? 'medium' : 'low',
+      action: score >= 0.7 ? '积极买入' : score >= 0.3 ? '考虑买入' : score >= -0.3 ? '观望' : score >= -0.7 ? '考虑卖出' : '积极卖出',
       reasoning
     }
   };
@@ -514,6 +423,10 @@ function generateADXSignal(data: RawData[], params: TrendParams = defaultTrendPa
         confidence: 'low',
         action: '观望',
         reasoning: ['数据不足，无法计算ADX信号']
+      },
+      risk_warnings: {
+        adx_extreme: 'none',
+        description: '数据不足'
       }
     };
   }
@@ -555,156 +468,111 @@ function generateADXSignal(data: RawData[], params: TrendParams = defaultTrendPa
     }
   }
 
-  const atr: number[] = [];
-  const plusDm14: number[] = [];
-  const minusDm14: number[] = [];
-  const alpha = 1 / 14;
+  const atr14 = calculateATR(high, low, close, 14);
+  const plusDI14 = calculateEMA(plusDm, 14).map((v, i) => atr14[i] > 0 ? (v / atr14[i]) * 100 : 0);
+  const minusDI14 = calculateEMA(minusDm, 14).map((v, i) => atr14[i] > 0 ? (v / atr14[i]) * 100 : 0);
 
-  for (let i = 0; i < n; i++) {
-    if (i < 13) {
-      atr.push(NaN);
-      plusDm14.push(NaN);
-      minusDm14.push(NaN);
-    } else if (i === 13) {
-      const sumTr = tr.slice(0, 14).reduce((a, b) => a + b, 0);
-      const sumPlus = plusDm.slice(0, 14).reduce((a, b) => a + b, 0);
-      const sumMinus = minusDm.slice(0, 14).reduce((a, b) => a + b, 0);
-      atr.push(sumTr / 14);
-      plusDm14.push(sumPlus / 14);
-      minusDm14.push(sumMinus / 14);
-    } else {
-      atr.push((tr[i] - atr[i - 1]) * alpha + atr[i - 1]);
-      plusDm14.push((plusDm[i] - plusDm14[i - 1]) * alpha + plusDm14[i - 1]);
-      minusDm14.push((minusDm[i] - minusDm14[i - 1]) * alpha + minusDm14[i - 1]);
-    }
-  }
+  const dx = plusDI14.map((pdi, i) => {
+    const mdi = minusDI14[i];
+    const sum = pdi + mdi;
+    return sum > 0 ? (Math.abs(pdi - mdi) / sum) * 100 : 0;
+  });
 
-  const plusDi: number[] = [];
-  const minusDi: number[] = [];
-  const dx: number[] = [];
+  const adx = calculateEMA(dx, 14);
 
-  for (let i = 0; i < n; i++) {
-    if (isNaN(atr[i]) || atr[i] === 0) {
-      plusDi.push(NaN);
-      minusDi.push(NaN);
-      dx.push(NaN);
-    } else {
-      plusDi.push((plusDm14[i] / atr[i]) * 100);
-      minusDi.push((minusDm14[i] / atr[i]) * 100);
-
-      const sumDi = plusDi[i] + minusDi[i];
-      if (sumDi === 0) {
-        dx.push(0);
-      } else {
-        dx.push(Math.abs(plusDi[i] - minusDi[i]) / sumDi * 100);
-      }
-    }
-  }
-
-  const adx: number[] = [];
-  for (let i = 0; i < n; i++) {
-    if (i < 27) {
-      adx.push(NaN);
-    } else if (i === 27) {
-      const sumDx = dx.slice(14, 28).reduce((a, b) => a + b, 0);
-      adx.push(sumDx / 14);
-    } else {
-      adx.push((dx[i] - adx[i - 1]) * alpha + adx[i - 1]);
-    }
-  }
-
-  const currentAdx = adx[n - 1] || 0;
-  const currentPlusDi = plusDi[n - 1] || 0;
-  const currentMinusDi = minusDi[n - 1] || 0;
+  const currentAdx = adx[n - 1];
+  const currentPlusDi = plusDI14[n - 1];
+  const currentMinusDi = minusDI14[n - 1];
 
   let strengthLevel: ADXSignal['strength_analysis']['level'];
   let strengthRange: string;
   let strengthColor: string;
   let strengthDesc: string;
 
-  if (currentAdx >= 75) {
-    strengthLevel = 'extreme_trend';
-    strengthRange = '>75';
-    strengthColor = '#8B0000';
-    strengthDesc = '极强趋势，极端行情';
-  } else if (currentAdx >= 50) {
-    strengthLevel = 'strong_trend';
-    strengthRange = '50-75';
-    strengthColor = '#FF0000';
-    strengthDesc = '强趋势，趋势加速';
-  } else if (currentAdx >= 25) {
-    strengthLevel = 'medium_trend';
-    strengthRange = '25-50';
-    strengthColor = '#00B050';
-    strengthDesc = '中等趋势，明确的趋势行情';
-  } else if (currentAdx >= 20) {
-    strengthLevel = 'trend_forming';
-    strengthRange = '20-25';
-    strengthColor = '#FFC000';
-    strengthDesc = '趋势萌芽，可能转势';
-  } else {
+  if (currentAdx < 20) {
     strengthLevel = 'no_trend';
     strengthRange = '0-20';
     strengthColor = '#808080';
-    strengthDesc = '无趋势，震荡盘整';
+    strengthDesc = '无明显趋势，震荡整理';
+  } else if (currentAdx < 25) {
+    strengthLevel = 'trend_forming';
+    strengthRange = '20-25';
+    strengthColor = '#FFC000';
+    strengthDesc = '趋势正在形成，密切关注';
+  } else if (currentAdx < 50) {
+    strengthLevel = 'medium_trend';
+    strengthRange = '25-50';
+    strengthColor = '#00B050';
+    strengthDesc = '中等趋势，最佳交易区间';
+  } else if (currentAdx < 75) {
+    strengthLevel = 'strong_trend';
+    strengthRange = '50-75';
+    strengthColor = '#FF6600';
+    strengthDesc = '强趋势，防范过热';
+  } else {
+    strengthLevel = 'extreme_trend';
+    strengthRange = '>75';
+    strengthColor = '#FF0000';
+    strengthDesc = '极强趋势，衰竭高危区';
   }
 
-  const diSpread = Math.abs(currentPlusDi - currentMinusDi);
   let directionBias: ADXSignal['direction_analysis']['bias'];
+  let diSpread = currentPlusDi - currentMinusDi;
   let directionDesc: string;
 
-  if (currentPlusDi > currentMinusDi && diSpread > 5) {
+  if (currentPlusDi > currentMinusDi && diSpread > 10) {
     directionBias = 'bullish';
-    directionDesc = `+DI(${currentPlusDi.toFixed(1)})持续位于-DI(${currentMinusDi.toFixed(1)})上方，差值${diSpread.toFixed(1)}，买方力量主导`;
-  } else if (currentMinusDi > currentPlusDi && diSpread > 5) {
+    directionDesc = '多头主导';
+  } else if (currentPlusDi > currentMinusDi && diSpread <= 10) {
+    directionBias = 'bullish';
+    directionDesc = '多头略占优';
+  } else if (currentMinusDi > currentPlusDi && diSpread < -10) {
     directionBias = 'bearish';
-    directionDesc = `-DI(${currentMinusDi.toFixed(1)})持续位于+DI(${currentPlusDi.toFixed(1)})上方，差值${diSpread.toFixed(1)}，卖方力量主导`;
+    directionDesc = '空头主导';
+  } else if (currentMinusDi > currentPlusDi && diSpread >= -10) {
+    directionBias = 'bearish';
+    directionDesc = '空头略占优';
   } else {
     directionBias = 'neutral';
-    directionDesc = `+DI(${currentPlusDi.toFixed(1)})与-DI(${currentMinusDi.toFixed(1)})差值${diSpread.toFixed(1)}，多空力量均衡`;
+    directionDesc = '多空平衡';
   }
 
   let lastCrossType: 'golden' | 'dead' | 'none' = 'none';
   let daysAgo = 0;
   let adxAtCross = 0;
   let adxTrendAtCross: 'rising' | 'falling' | 'flat' = 'flat';
-
-  for (let i = Math.max(0, n - 21); i < n - 1; i++) {
-    if (!isNaN(plusDi[i]) && !isNaN(minusDi[i]) && !isNaN(plusDi[i + 1]) && !isNaN(minusDi[i + 1])) {
-      if (plusDi[i] <= minusDi[i] && plusDi[i + 1] > minusDi[i + 1]) {
-        lastCrossType = 'golden';
-        daysAgo = n - 1 - (i + 1);
-        adxAtCross = adx[i + 1] || 0;
-        if (i >= 5 && !isNaN(adx[i - 4])) {
-          const slope = calculateNormalizedSlope(adx.slice(i - 4, i + 2), 6) || 0;
-          adxTrendAtCross = slope > 0.005 ? 'rising' : slope < -0.005 ? 'falling' : 'flat';
-        }
-        break;
-      } else if (plusDi[i] >= minusDi[i] && plusDi[i + 1] < minusDi[i + 1]) {
-        lastCrossType = 'dead';
-        daysAgo = n - 1 - (i + 1);
-        adxAtCross = adx[i + 1] || 0;
-        if (i >= 5 && !isNaN(adx[i - 4])) {
-          const slope = calculateNormalizedSlope(adx.slice(i - 4, i + 2), 6) || 0;
-          adxTrendAtCross = slope > 0.005 ? 'rising' : slope < -0.005 ? 'falling' : 'flat';
-        }
-        break;
-      }
-    }
-  }
-
   let crossValidity: 'valid' | 'invalid' = 'invalid';
   let crossDesc: string;
 
-  if (lastCrossType !== 'none') {
-    if (adxAtCross >= 20 && adxTrendAtCross === 'rising') {
-      crossValidity = 'valid';
-      crossDesc = `${lastCrossType === 'golden' ? '有效金叉' : '有效死叉'}信号，发生在${adxTrendAtCross === 'rising' ? 'ADX上升期' : 'ADX盘整期'}`;
-    } else {
-      crossDesc = `${lastCrossType === 'golden' ? '金叉' : '死叉'}信号${adxAtCross < 20 ? '，但ADX低于20' : ''}${adxTrendAtCross !== 'rising' ? '，ADX未上升' : ''}`;
+  for (let i = n - 2; i >= Math.max(0, n - 30); i--) {
+    const prevPlus = plusDI14[i];
+    const currPlus = plusDI14[i + 1];
+    const prevMinus = minusDI14[i];
+    const currMinus = minusDI14[i + 1];
+
+    if (prevPlus <= prevMinus && currPlus > currMinus) {
+      lastCrossType = 'golden';
+      daysAgo = n - 1 - i;
+      adxAtCross = adx[i];
+      adxTrendAtCross = adx[i] > adx[i - 1] ? 'rising' : adx[i] < adx[i - 1] ? 'falling' : 'flat';
+      crossValidity = daysAgo <= 5 ? 'valid' : 'invalid';
+      break;
+    } else if (prevPlus >= prevMinus && currPlus < currMinus) {
+      lastCrossType = 'dead';
+      daysAgo = n - 1 - i;
+      adxAtCross = adx[i];
+      adxTrendAtCross = adx[i] > adx[i - 1] ? 'rising' : adx[i] < adx[i - 1] ? 'falling' : 'flat';
+      crossValidity = daysAgo <= 5 ? 'valid' : 'invalid';
+      break;
     }
-  } else {
+  }
+
+  if (lastCrossType === 'none') {
     crossDesc = '最近20日内无DI交叉信号';
+  } else if (lastCrossType === 'golden') {
+    crossDesc = `金叉发生在${daysAgo}天前，ADX=${adxAtCross.toFixed(1)}，信号${daysAgo <= 5 ? '有效' : '可能失效'}`;
+  } else {
+    crossDesc = `死叉发生在${daysAgo}天前，ADX=${adxAtCross.toFixed(1)}，信号${daysAgo <= 5 ? '有效' : '可能失效'}`;
   }
 
   const recentAdx = adx.filter(v => !isNaN(v)).slice(-5);
@@ -800,74 +668,53 @@ function generateADXSignal(data: RawData[], params: TrendParams = defaultTrendPa
 
   if (strengthLevel === 'medium_trend') {
     totalScore += 0.3;
-    reasoning.push('ADX处于中等趋势区间，趋势跟踪策略适用');
+    reasoning.push('ADX处于中等趋势区间');
   } else if (strengthLevel === 'strong_trend') {
     totalScore += 0.2;
     reasoning.push('ADX处于强趋势区间');
   } else if (strengthLevel === 'no_trend') {
     totalScore -= 0.3;
-    reasoning.push('ADX处于无趋势区间，震荡市');
+    reasoning.push('ADX低于20，无趋势');
   }
 
   if (directionBias === 'bullish') {
-    totalScore += 0.25;
-    reasoning.push('+DI高于-DI，多头占优');
+    totalScore += 0.2;
+    reasoning.push('+DI > -DI，多头方向');
   } else if (directionBias === 'bearish') {
-    totalScore -= 0.25;
-    reasoning.push('-DI高于+DI，空头占优');
-  }
-
-  if (adxTrend === 'rising' && adxSlope5d > 0.01) {
-    totalScore += 0.2;
-    reasoning.push('ADX上升，趋势强度在增强');
-  }
-  if (lastCrossType === 'golden' && crossValidity === 'valid') {
-    totalScore += 0.2;
-    reasoning.push('有效金叉信号');
-  } else if (lastCrossType === 'dead' && crossValidity === 'valid') {
     totalScore -= 0.2;
-    reasoning.push('有效死叉信号');
+    reasoning.push('-DI > +DI，空头方向');
   }
 
-  if (divergenceType === 'none') {
-    totalScore += 0.1;
+  if (crossValidity === 'valid') {
+    totalScore += 0.2;
+    reasoning.push(lastCrossType === 'golden' ? '5日内金叉有效' : '5日内死叉有效');
+  }
+
+  if (divergenceType === 'bottom') {
+    totalScore += 0.25;
+    reasoning.push('底背离信号');
   } else if (divergenceType === 'top') {
-    totalScore -= 0.2;
-    reasoning.push('顶背离预警');
-  } else if (divergenceType === 'bottom') {
-    totalScore += 0.1;
-    reasoning.push('底背离，可能见底');
+    totalScore -= 0.25;
+    reasoning.push('顶背离信号');
   }
 
-  if (plusDiWarning === 'none' && minusDiWarning === 'none') {
-    totalScore += 0.1;
-  } else if (plusDiWarning === 'extreme' || minusDiWarning === 'extreme') {
-    totalScore -= 0.2;
-    reasoning.push('DI极端值预警');
+  if (adxTrend === 'rising') {
+    totalScore += 0.175;
+    reasoning.push('ADX上升，趋势增强');
+  } else if (adxTrend === 'falling') {
+    totalScore -= 0.175;
+    reasoning.push('ADX下降，趋势减弱');
   }
-
-  totalScore = Math.max(-1, Math.min(1, totalScore));
 
   let finalLevel: ADXSignal['comprehensive_assessment']['level'];
-  let finalAction: string;
-  let finalConfidence: 'high' | 'medium' | 'low';
+  if (totalScore >= 0.8) finalLevel = 'strong_bullish';
+  else if (totalScore >= 0.4) finalLevel = 'bullish';
+  else if (totalScore >= -0.4) finalLevel = 'neutral';
+  else if (totalScore >= -0.8) finalLevel = 'bearish';
+  else finalLevel = 'strong_bearish';
 
-  if (totalScore >= 0.6) {
-    finalLevel = 'strong_bullish';
-    finalAction = '买入/加仓';
-  } else if (totalScore >= 0.3) {
-    finalLevel = 'bullish';
-    finalAction = '考虑买入';
-  } else if (totalScore >= -0.3) {
-    finalLevel = 'neutral';
-    finalAction = '观望';
-  } else if (totalScore >= -0.6) {
-    finalLevel = 'bearish';
-    finalAction = '考虑卖出';
-  } else {
-    finalLevel = 'strong_bearish';
-    finalAction = '卖出/减仓';
-  }
+  let finalConfidence: 'high' | 'medium' | 'low';
+  let finalAction: string;
 
   if (crossValidity === 'valid' && adxTrend === 'rising' && divergenceType === 'none') {
     finalConfidence = 'high';
@@ -875,6 +722,14 @@ function generateADXSignal(data: RawData[], params: TrendParams = defaultTrendPa
     finalConfidence = 'medium';
   } else {
     finalConfidence = 'low';
+  }
+
+  if (finalLevel === 'strong_bullish' || finalLevel === 'bullish') {
+    finalAction = '积极买入或持有';
+  } else if (finalLevel === 'strong_bearish' || finalLevel === 'bearish') {
+    finalAction = '减仓或观望';
+  } else {
+    finalAction = '中性观望';
   }
 
   return {
@@ -966,6 +821,11 @@ function generateBollingerSignal(closes: number[], params: TrendParams = default
       indicators: {
         experience_condition: '',
         percentile_condition: ''
+      },
+      risk_warnings: {
+        breakdown_below_lower: 'none',
+        breakout_above_upper: 'none',
+        description: '数据不足'
       }
     };
   }
@@ -1021,11 +881,11 @@ function generateBollingerSignal(closes: number[], params: TrendParams = default
     }
   }
 
-  let signalLevel: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH_INTENSITY';
+  let signalLevel: BollingerSignal['squeeze_signal']['signal_level'];
   let signalName: string;
   let description: string;
 
-  if (consecutiveDays >= 5) {
+  if (dualCriteriaMet && consecutiveDays >= 5) {
     signalLevel = 'HIGH_INTENSITY';
     signalName = '高强度挤压确认';
     description = `波动率已降至极低水平，双重标准确认且持续${consecutiveDays}个交易日，突破概率显著增加`;
@@ -1088,10 +948,10 @@ export function computeTrendIndicator(symbol: string, name: string, data: RawDat
   const closes = data.map(d => d.close);
   const volumes = data.map(d => d.volume);
   const lastIndex = data.length - 1;
-  const currentPrice = data[lastIndex].close;
 
-  const sma20 = calculateSMA(closes, params.bollinger.period);
-  const ma20 = sma20[lastIndex] || 0;
+  const currentPrice = data[lastIndex].close;
+  const sma20 = calculateSMA(closes, 20);
+  const ma20 = sma20[lastIndex];
 
   const sma20Valid = sma20.filter(v => !isNaN(v));
   const ma20Signal = generateMA20Signal(sma20Valid, params);
