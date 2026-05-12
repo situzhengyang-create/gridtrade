@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, RefreshCw, Trash2, Menu, Check, GitBranch, Settings } from 'lucide-react';
+import { Plus, RefreshCw, Trash2, Menu, Check, GitBranch, Settings, BarChart3 } from 'lucide-react';
 import { TrendIndicator } from '../types';
 
 interface TrendMonitorPanelProps {
@@ -18,6 +18,7 @@ interface TrendMonitorPanelProps {
   onOpenNav: () => void;
   onOpenDecisionFlow?: (symbol: string) => void;
   onOpenSettings?: () => void;
+  onOpenIndicatorDetail?: (symbol: string) => void;
 }
 
 export default function TrendMonitorPanel({
@@ -35,7 +36,8 @@ export default function TrendMonitorPanel({
   onConfirmAdd,
   onOpenNav,
   onOpenDecisionFlow,
-  onOpenSettings
+  onOpenSettings,
+  onOpenIndicatorDetail
 }: TrendMonitorPanelProps) {
   const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>([]);
@@ -363,6 +365,18 @@ export default function TrendMonitorPanel({
                               >
                                 <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
                               </button>
+                              {onOpenIndicatorDetail && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenIndicatorDetail(symbol);
+                                  }}
+                                  className="p-1 text-slate-300 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
+                                  title="指标详情"
+                                >
+                                  <BarChart3 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                               {onOpenDecisionFlow && (
                                 <button
                                   onClick={(e) => {

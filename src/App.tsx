@@ -23,6 +23,7 @@ import {
   History,
   Info,
   ChevronLeft,
+  ArrowLeft,
   ArrowRight,
   AlertTriangle,
   Lightbulb,
@@ -47,6 +48,7 @@ import DecisionFlowPanel from './components/DecisionFlowPanel';
 import ArchitectureDocPanel from './components/ArchitectureDocPanel';
 import ApplicationGuidePanel from './components/ApplicationGuidePanel';
 import SettingsPanel from './components/SettingsPanel';
+import IndicatorDetailPanel from './components/IndicatorDetailPanel';
 import { defaultTrendParams, TrendParams } from './types/params';
 
 enum AppView {
@@ -59,7 +61,8 @@ enum AppView {
   DECISION_FLOW = 'DECISION_FLOW',
   ARCHITECTURE_DOC = 'ARCHITECTURE_DOC',
   APPLICATION_GUIDE = 'APPLICATION_GUIDE',
-  TREND_SETTINGS = 'TREND_SETTINGS'
+  TREND_SETTINGS = 'TREND_SETTINGS',
+  INDICATOR_DETAIL = 'INDICATOR_DETAIL'
 }
 
 export default function App() {
@@ -129,6 +132,7 @@ export default function App() {
   });
   const [trendLoading, setTrendLoading] = useState<Record<string, boolean>>({});
   const [decisionFlowSymbol, setDecisionFlowSymbol] = useState<string | null>(null);
+  const [indicatorDetailSymbol, setIndicatorDetailSymbol] = useState<string | null>(null);
   const [trendParams, setTrendParams] = useState<TrendParams>(() => {
     const saved = localStorage.getItem('grid_trend_params');
     if (saved) {
@@ -956,11 +960,72 @@ export default function App() {
             }
           }}
           onOpenNav={() => setShowNavDrawer(true)}
+          onOpenIndicatorDetail={(symbol) => {
+            setIndicatorDetailSymbol(symbol);
+            setView(AppView.INDICATOR_DETAIL);
+          }}
           onOpenDecisionFlow={(symbol) => {
             setDecisionFlowSymbol(symbol);
             setView(AppView.DECISION_FLOW);
           }}
           onOpenSettings={() => setView(AppView.TREND_SETTINGS)}
+        />
+      </div>
+    );
+  };
+
+  const renderIndicatorDetail = () => {
+    const indicator = trendIndicators.find(ti => ti.symbol === indicatorDetailSymbol);
+    if (!indicator) {
+      return (
+        <div className="flex-1 flex flex-col bg-white">
+          <header className="px-4 py-3 flex items-center gap-4 bg-white border-b border-slate-100 shrink-0">
+            <button
+              onClick={() => setView(AppView.TREND)}
+              className="w-10 h-10 flex items-center justify-center hover:bg-slate-100 rounded-full transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5 text-slate-600" />
+            </button>
+            <div>
+              <h1 className="text-lg font-black text-slate-900">指标详情</h1>
+            </div>
+          </header>
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-slate-400">未找到指标数据</p>
+          </div>
+        </div>
+      );
+    }
+
+    const currentIndex = trendIndicators.findIndex(ti => ti.symbol === indicatorDetailSymbol);
+    const hasPrev = currentIndex > 0;
+    const hasNext = currentIndex < trendIndicators.length - 1;
+
+    const handlePrev = () => {
+      if (hasPrev) {
+        const prevIndicator = trendIndicators[currentIndex - 1];
+        setIndicatorDetailSymbol(prevIndicator.symbol);
+      }
+    };
+
+    const handleNext = () => {
+      if (hasNext) {
+        const nextIndicator = trendIndicators[currentIndex + 1];
+        setIndicatorDetailSymbol(nextIndicator.symbol);
+      }
+    };
+
+    return (
+      <div className="flex-1 flex flex-col bg-white overflow-hidden">
+        <IndicatorDetailPanel
+          indicator={indicator}
+          onBack={() => setView(AppView.TREND)}
+          onPrev={handlePrev}
+          onNext={handleNext}
+          hasPrev={hasPrev}
+          hasNext={hasNext}
+          currentIndex={currentIndex}
+          totalCount={trendIndicators.length}
         />
       </div>
     );
@@ -1893,6 +1958,11 @@ export default function App() {
                 setView(AppView.TREND);
               }}
             />
+          </motion.div>
+        )}
+        {view === AppView.INDICATOR_DETAIL && (
+          <motion.div key="indicator-detail" className="flex-1 flex flex-col min-h-0 min-w-0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            {renderIndicatorDetail()}
           </motion.div>
         )}
         {(view === AppView.SETTING || view === AppView.GRID || view === AppView.REPORT) && (
