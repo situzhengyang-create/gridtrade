@@ -34,7 +34,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import axios from 'axios';
-import { GridStrategy, GridLevel, FilterCondition, FilterPreset, FilterPeriod, FilterMetric, FilterOperator, TrendIndicator } from './types';
+import { GridStrategy, GridLevel, FilterCondition, FilterPreset, FilterPeriod, FilterMetric, FilterOperator, TrendIndicator, RawData } from './types';
 import RichEditor from './components/RichEditor';
 import { fetchBacktestData, fetchDiagnosticData } from './services/marketData';
 import { analyzeGridSuitability, DiagnosisReport } from './services/gridDiagnosticService';
@@ -51,6 +51,12 @@ import SettingsPanel from './components/SettingsPanel';
 import IndicatorDetailPanel from './components/IndicatorDetailPanel';
 import { defaultTrendParams, TrendParams } from './types/params';
 
+
+import IndicatorCalculatorPanel from './components/IndicatorCalculatorPanel';
+import IndicatorReportPanel from './components/IndicatorReportPanel';
+import { calculateAllIndicators, parseKlines } from './services/indicatorCalculator';
+import { CalculationRecord, ComprehensiveIndicatorReport } from './types';
+
 enum AppView {
   HOME = 'HOME',
   SUMMARY = 'SUMMARY',
@@ -62,7 +68,9 @@ enum AppView {
   ARCHITECTURE_DOC = 'ARCHITECTURE_DOC',
   APPLICATION_GUIDE = 'APPLICATION_GUIDE',
   TREND_SETTINGS = 'TREND_SETTINGS',
-  INDICATOR_DETAIL = 'INDICATOR_DETAIL'
+  INDICATOR_DETAIL = 'INDICATOR_DETAIL',
+  INDICATOR_CALCULATOR = 'INDICATOR_CALCULATOR',
+  INDICATOR_REPORT = 'INDICATOR_REPORT'
 }
 
 export default function App() {
@@ -202,7 +210,183 @@ export default function App() {
   const [isSavingPreset, setIsSavingPreset] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
 
-  // New delete mode states
+  // 指标计算模块状态
+  const [indicatorCalcSymbols, setIndicatorCalcSymbols] = useState<string[]>(() => {
+    const saved = localStorage.getItem('indicator_calc_symbols');
+    return saved ? Array.from(new Set(JSON.parse(saved) as string[])) : [];
+  });
+  const [indicatorCalcRecords, setIndicatorCalcRecords] = useState<Record<string, CalculationRecord>>(() => {
+    const saved = localStorage.getItem('indicator_calc_records');
+    return saved ? JSON.parse(saved) : {};
+  });
+  const [showIndicatorAddPanel, setShowIndicatorAddPanel] = useState(false);
+  const [indicatorSymbolsInput, setIndicatorSymbolsInput] = useState('');
+  const [isIndicatorCalculating, setIsIndicatorCalculating] = useState(false);
+  const [indicatorCalculatingProgress, setIndicatorCalculatingProgress] = useState(0);
+  const [indicatorCalculatingSymbol, setIndicatorCalculatingSymbol] = useState<string | null>(null);
+  const [indicatorReportSymbol, setIndicatorReportSymbol] = useState<string | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem('indicator_calc_symbols', JSON.stringify(indicatorCalcSymbols));
+  }, [indicatorCalcSymbols]);
+
+  useEffect(() => {
+    localStorage.setItem('indicator_calc_records', JSON.stringify(indicatorCalcRecords));
+  }, [indicatorCalcRecords]);
+
+  // 批量添加证券到指标计算列表
+  const handleBatchAddIndicatorSymbols = (input: string) => {
+    const symbols = input
+      .split(/[\s,，\n]+/)
+      .map(s => s.trim())
+      .filter(s => s.length > 0)
+      .map(s => {
+        const lower = s.toLowerCase();
+        if (/^\d{6}$/.test(s)) {
+          if (s.startsWith('6')) return 'sh' + s;
+          return 'sz' + s;
+        }
+        return lower;
+      });
+
+    if (symbols.length === 0) return;
+
+    setIndicatorCalcSymbols(prev => {
+      const existing = new Set(prev);
+      const newSymbols = symbols.filter(s => !existing.has(s));
+      return [...prev, ...newSymbols];
+    });
+
+    setIndicatorCalcRecords(prev => {
+      const next = { ...prev };
+      symbols.forEach(s => {
+        if (!next[s]) {
+          next[s] = { symbol: s, name: s.toUpperCase(), status: 'pending' };
+        }
+      });
+      return next;
+    });
+  };
+
+  // 从指标计算列表移除证券
+  const handleRemoveIndicatorSymbol = (symbol: string) => {
+    setIndicatorCalcSymbols(prev => prev.filter(s => s !== symbol));
+    setIndicatorCalcRecords(prev => {
+      const next = { ...prev };
+      delete next[symbol];
+      return next;
+    });
+  };
+
+  // 计算单个证券的指标
+  const calculateSingleIndicator = async (symbol: string): Promise<void> => {
+    setIndicatorCalcRecords(prev => ({
+      ...prev,
+      [symbol]: { 
+        ...(prev[symbol] || { symbol, name: symbol.toUpperCase() }), 
+        status: 'calculating',
+        message: '正在获取数据...'
+      }
+    }));
+
+    try {
+      const formattedSymbol = symbol.replace(/SH|SZ/i, '').toUpperCase();
+      const rawData = await fetchDiagnosticData(formattedSymbol);
+      
+      if (!rawData || rawData.length === 0) {
+        throw new Error('未获取到数据');
+      }
+
+      let name = symbol.toUpperCase();
+      try {
+        const text = await fetchTencentQuote(`s_${symbol}`);
+        if (text && text.split('~').length > 1) {
+          const fetchedName = text.split('~')[1];
+          if (fetchedName && fetchedName !== 'N/A') {
+            name = fetchedName;
+          }
+        }
+      } catch(e) {
+        console.warn('获取股票名称失败:', e);
+      }
+
+      setIndicatorCalcRecords(prev => ({
+        ...prev,
+        [symbol]: { 
+          ...(prev[symbol] || { symbol, name }), 
+          name,
+          status: 'calculating',
+          message: '正在计算指标...'
+        }
+      }));
+
+      const parsedData: RawData[] = rawData.map(item => ({
+        date: item.date,
+        open: item.open,
+        close: item.close,
+        high: item.high,
+        low: item.low,
+        volume: item.volume,
+        change_pct: item.change_pct
+      }));
+      
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      const report = calculateAllIndicators(parsedData, symbol, name);
+
+      if (!report) {
+        throw new Error('指标计算失败');
+      }
+
+      setIndicatorCalcRecords(prev => ({
+        ...prev,
+        [symbol]: { 
+          symbol, 
+          name, 
+          status: 'completed',
+          report,
+          calculatedAt: report.calculatedAt
+        }
+      }));
+
+    } catch (err: any) {
+      const errorMsg = err?.message || '未知错误';
+      setIndicatorCalcRecords(prev => ({
+        ...prev,
+        [symbol]: { 
+          symbol, 
+          name: prev[symbol]?.name || symbol.toUpperCase(), 
+          status: 'error',
+          errorMsg
+        }
+      }));
+    }
+  };
+
+  // 一键计算所有证券指标
+  const handleCalculateAllIndicators = async () => {
+    if (indicatorCalcSymbols.length === 0 || isIndicatorCalculating) return;
+
+    setIsIndicatorCalculating(true);
+    setIndicatorCalculatingProgress(0);
+
+    const symbolsToCalc = [...indicatorCalcSymbols];
+
+    for (let i = 0; i < symbolsToCalc.length; i++) {
+      const symbol = symbolsToCalc[i];
+      setIndicatorCalculatingSymbol(symbol);
+      setIndicatorCalculatingProgress((i / symbolsToCalc.length) * 100);
+      
+      await calculateSingleIndicator(symbol);
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    setIndicatorCalculatingProgress(100);
+    setIndicatorCalculatingSymbol(null);
+    setIsIndicatorCalculating(false);
+  };
+
+// New delete mode states
   const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [selectedSymbols, setSelectedSymbols] = useState<string[]>([]);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
@@ -927,6 +1111,22 @@ export default function App() {
                      <div className="text-[10px] uppercase tracking-widest opacity-60">Trend Trade</div>
                    </div>
                  </button>
+
+                 <button 
+                  onClick={() => {
+                    setView(AppView.INDICATOR_CALCULATOR);
+                    setShowNavDrawer(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-4 rounded-2xl transition-all ${view === AppView.INDICATOR_CALCULATOR || view === AppView.INDICATOR_REPORT ? 'bg-indigo-50 text-indigo-700 font-bold' : 'hover:bg-slate-50 text-slate-600 font-medium'}`}
+                 >
+                   <div className={`p-2 rounded-xl flex-shrink-0 ${view === AppView.INDICATOR_CALCULATOR || view === AppView.INDICATOR_REPORT ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}>
+                     <Calculator className="w-5 h-5" />
+                   </div>
+                   <div className="text-left flex-1">
+                     <div className="text-sm">指标计算系统</div>
+                     <div className="text-[10px] uppercase tracking-widest opacity-60">Indicator Calc</div>
+                   </div>
+                 </button>
               </div>
             </motion.div>
         )}
@@ -1026,6 +1226,71 @@ export default function App() {
           hasNext={hasNext}
           currentIndex={currentIndex}
           totalCount={trendIndicators.length}
+        />
+      </div>
+    );
+  };
+
+
+  const renderIndicatorCalculator = () => (
+    <div className="flex-1 flex flex-col bg-white overflow-hidden relative w-full min-w-0">
+      <IndicatorCalculatorPanel
+        symbols={indicatorCalcSymbols}
+        records={indicatorCalcRecords}
+        isCalculating={isIndicatorCalculating}
+        calculatingProgress={indicatorCalculatingProgress}
+        calculatingSymbol={indicatorCalculatingSymbol}
+        onAddSymbol={() => setShowIndicatorAddPanel(true)}
+        onRemoveSymbol={handleRemoveIndicatorSymbol}
+        onCalculate={handleCalculateAllIndicators}
+        onOpenReport={(symbol) => {
+          setIndicatorReportSymbol(symbol);
+          setView(AppView.INDICATOR_REPORT);
+        }}
+        addPanelOpen={showIndicatorAddPanel}
+        onToggleAddPanel={() => setShowIndicatorAddPanel(!showIndicatorAddPanel)}
+        inputValue={indicatorSymbolsInput}
+        onInputChange={(value) => setIndicatorSymbolsInput(value)}
+        onConfirmAdd={() => {
+          if (indicatorSymbolsInput.trim()) {
+            handleBatchAddIndicatorSymbols(indicatorSymbolsInput);
+            setIndicatorSymbolsInput('');
+            setShowIndicatorAddPanel(false);
+          }
+        }}
+        onOpenNav={() => setShowNavDrawer(true)}
+      />
+    </div>
+  );
+
+  const renderIndicatorReport = () => {
+    const record = indicatorReportSymbol ? indicatorCalcRecords[indicatorReportSymbol] : null;
+    if (!record || !record.report) {
+      return (
+        <div className="flex-1 flex flex-col bg-white">
+          <header className="px-4 py-3 flex items-center gap-4 bg-white border-b border-slate-100 shrink-0">
+            <button
+              onClick={() => setView(AppView.INDICATOR_CALCULATOR)}
+              className="w-10 h-10 flex items-center justify-center hover:bg-slate-100 rounded-full transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5 text-slate-600" />
+            </button>
+            <div>
+              <h1 className="text-lg font-black text-slate-900">指标报告</h1>
+            </div>
+          </header>
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-slate-400">未找到报告数据</p>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex-1 flex flex-col bg-white overflow-hidden">
+        <IndicatorReportPanel
+          report={record.report}
+          onBack={() => setView(AppView.INDICATOR_CALCULATOR)}
         />
       </div>
     );
@@ -1961,6 +2226,21 @@ export default function App() {
           </motion.div>
         )}
         {view === AppView.INDICATOR_DETAIL && (
+          <motion.div key="indicator-detail" className="flex-1 flex flex-col min-h-0 min-w-0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            {renderIndicatorDetail()}
+          </motion.div>
+        )}
+        {view === AppView.INDICATOR_CALCULATOR && (
+          <motion.div key="indicator-calculator" className="flex-1 flex flex-col min-h-0 min-w-0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            {renderIndicatorCalculator()}
+          </motion.div>
+        )}
+        {view === AppView.INDICATOR_REPORT && (
+          <motion.div key="indicator-report" className="flex-1 flex flex-col min-h-0 min-w-0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            {renderIndicatorReport()}
+          </motion.div>
+        )}
+        {(view === AppView.SETTING || view === AppView.GRID || view === AppView.REPORT) && (
           <motion.div key="indicator-detail" className="flex-1 flex flex-col min-h-0 min-w-0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
             {renderIndicatorDetail()}
           </motion.div>

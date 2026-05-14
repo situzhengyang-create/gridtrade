@@ -248,3 +248,217 @@ export interface FilterPreset {
   name: string;
   conditions: FilterCondition[];
 }
+
+export interface MACDResult {
+  date: string;
+  ema12: number;
+  ema26: number;
+  dif: number;
+  dea: number;
+  histogram: number;
+}
+
+export interface DMIResult {
+  date: string;
+  tr: number;
+  plus_dm: number;
+  minus_dm: number;
+  atr: number;
+  plus_di: number;
+  minus_di: number;
+  dx: number;
+  adx: number;
+}
+
+export interface BOLLResult {
+  date: string;
+  middle_band: number;
+  std_dev: number;
+  upper_band: number;
+  lower_band: number;
+  width: number;
+}
+
+export interface EXPMAResult {
+  date: string;
+  exp1: number;
+  exp2: number;
+}
+
+export interface ENEResult {
+  date: string;
+  middle: number;
+  upper: number;
+  lower: number;
+}
+
+export interface BBIResult {
+  date: string;
+  ma3: number;
+  ma6: number;
+  ma12: number;
+  ma24: number;
+  bbi: number;
+}
+
+export interface TRIXResult {
+  date: string;
+  ema1: number;
+  ema2: number;
+  ema3: number;
+  trix: number;
+  matrix: number;
+}
+
+export interface KDJResult {
+  date: string;
+  rsv: number;
+  k: number;
+  d: number;
+  j: number;
+}
+
+export interface SKDJResult {
+  date: string;
+  rsv: number;
+  slow_k: number;
+  slow_d: number;
+}
+
+export interface RSIResult {
+  date: string;
+  rsi6: number;
+  rsi12: number;
+  rsi24: number;
+}
+
+export interface CCIResult {
+  date: string;
+  tp: number;
+  ma_tp: number;
+  md: number;
+  cci: number;
+}
+
+export interface WRResult {
+  date: string;
+  wr10: number;
+}
+
+export interface LWRResult {
+  date: string;
+  lwr10: number;
+}
+
+export interface BIASResult {
+  date: string;
+  bias6: number;
+  bias12: number;
+  bias24: number;
+}
+
+export interface MTMResult {
+  date: string;
+  mtm12: number;
+  mtm_ma6: number;
+}
+
+export interface OBVResult {
+  date: string;
+  obv: number;
+  maobv30: number;
+}
+
+export interface VRResult {
+  date: string;
+  avs: number;
+  bvs: number;
+  cvs: number;
+  vr: number;
+}
+
+export interface BRARResult {
+  date: string;
+  ar: number;
+  br: number;
+}
+
+export interface CRResult {
+  date: string;
+  mid: number;
+  cr: number;
+  ma5: number;
+  ma10: number;
+  ma20: number;
+}
+
+export interface DMAResult {
+  date: string;
+  dif: number;
+  ama: number;
+}
+
+export interface LONResult {
+  date: string;
+  money_flow: number;
+  lon: number;
+  lonma: number;
+}
+
+export interface BullBearLineResult {
+  date: string;
+  bull_bear_line: number;
+}
+
+export interface ComprehensiveIndicatorReport {
+  symbol: string;
+  name: string;
+  latestPrice: number;
+  dataCount: number;
+  latestDate: string;
+  calculatedAt: string;
+
+  trend: {
+    macd?: MACDResult;
+    dmi?: DMIResult;
+    boll?: BOLLResult;
+    expma?: EXPMAResult;
+    ene?: ENEResult;
+    bbi?: BBIResult;
+    trix?: TRIXResult;
+  };
+
+  oscillator: {
+    kdj?: KDJResult;
+    skdj?: SKDJResult;
+    rsi?: RSIResult;
+    cci?: CCIResult;
+    wr?: WRResult;
+    lwr?: LWRResult;
+    bias?: BIASResult;
+    mtm?: MTMResult;
+  };
+
+  volume: {
+    obv?: OBVResult;
+    vr?: VRResult;
+    brar?: BRARResult;
+    cr?: CRResult;
+    dma?: DMAResult;
+    lon?: LONResult;
+    bullBearLine?: BullBearLineResult;
+    latestVolume: number;
+    latestTurnover: number;
+  };
+}
+
+export interface CalculationRecord {
+  symbol: string;
+  name: string;
+  status: 'pending' | 'calculating' | 'completed' | 'error';
+  progress?: number;
+  message?: string;
+  report?: ComprehensiveIndicatorReport;
+  calculatedAt?: string;
+  errorMsg?: string;
+}

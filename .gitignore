@@ -6,3 +6,32 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Editor directories and files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# npm/yarn
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log
+
+# TypeScript
+*.tsbuildinfo
+.vite/
+
+# Trae IDE
+.trae/
+
+# Temporary files
+*.tmp
+*.temp
