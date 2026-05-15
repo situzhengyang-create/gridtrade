@@ -98,143 +98,85 @@ export interface MACDSignal {
     };
     position_signal: {
       type: 'above_zero' | 'below_zero' | 'near_zero';
-      bias: 'bullish' | 'bearish' | 'neutral';
       description: string;
     };
     divergence_signal: {
-      type: 'top' | 'bottom' | 'none';
-      confidence: number;
+      type: 'bullish' | 'bearish' | 'none';
+      strength: number;
       description: string;
     };
-    momentum_signal: {
-      trend: 'accelerating' | 'decelerating' | 'stable' | 'reversal';
-      histogram_change: number;
-      description: string;
-    };
-    volume_signal: {
-      confirmed: boolean;
-      volume_change: number;
+    histogram_signal: {
+      type: 'increasing' | 'decreasing' | 'none';
       description: string;
     };
   };
-  comprehensive_signal: {
-    score: number;
-    level: 'strong_bullish' | 'bullish' | 'neutral' | 'bearish' | 'strong_bearish';
-    confidence: 'high' | 'medium' | 'low';
-    action: string;
-    reasoning: string[];
-  };
-}
-
-export interface ADXSignal {
-  date: string;
-  adx_period: number;
-  indicators: {
-    adx: number;
-    plus_di: number;
-    minus_di: number;
-    adx_slope_5d: number;
-  };
-  strength_analysis: {
-    level: 'no_trend' | 'trend_forming' | 'medium_trend' | 'strong_trend' | 'extreme_trend';
-    range: string;
-    color: string;
-    description: string;
-  };
-  direction_analysis: {
-    bias: 'bullish' | 'bearish' | 'neutral';
-    di_spread: number;
-    description: string;
-  };
-  signal_analysis: {
-    last_cross: {
-      type: 'golden' | 'dead' | 'none';
-      days_ago: number;
-      adx_at_cross: number;
-      adx_trend_at_cross: 'rising' | 'falling' | 'flat';
-      validity: 'valid' | 'invalid';
-      description: string;
-    };
-    current_signal: 'none' | 'golden_cross' | 'dead_cross';
-  };
-  momentum_analysis: {
-    adx_trend: 'rising' | 'falling' | 'flat';
-    slope_value: number;
-    description: string;
-  };
-  exhaustion_analysis: {
-    divergence: {
-      type: 'top' | 'bottom' | 'none';
-      confidence: number;
-      description: string;
-    };
-    di_extremes: {
-      plus_di_warning: 'none' | 'high' | 'extreme';
-      minus_di_warning: 'none' | 'high' | 'extreme';
-      description: string;
-    };
-  };
-  comprehensive_assessment: {
-    score: number;
-    level: 'strong_bullish' | 'bullish' | 'neutral' | 'bearish' | 'strong_bearish';
-    confidence: 'high' | 'medium' | 'low';
-    action: string;
-    reasoning: string[];
-  };
-  risk_warnings: {
-    adx_extreme: 'warning' | 'none';
+  overall: {
+    trend: 'bullish' | 'bearish' | 'neutral';
+    strength: number;
     description: string;
   };
 }
 
-export interface BollingerSignal {
+export interface DmiValues {
+  plus_di: number;
+  minus_di: number;
+  adx: number;
+  dx: number;
+}
+
+export interface DmiSignal {
   date: string;
-  bollinger_data: {
+  values: DmiValues;
+  signals: {
+    trend_strength: {
+      type: 'strong' | 'weak' | 'none';
+      description: string;
+    };
+    trend_direction: {
+      type: 'up' | 'down' | 'sideways';
+      description: string;
+    };
+    crossover_signal: {
+      type: 'bullish' | 'bearish' | 'none';
+      description: string;
+    };
+  };
+  overall: {
+    trend: 'bullish' | 'bearish' | 'neutral';
+    strength: number;
+    description: string;
+  };
+}
+
+export interface BollSignal {
+  date: string;
+  values: {
     upper_band: number;
     middle_band: number;
     lower_band: number;
+    price: number;
     width: number;
-    width_percent: number;
   };
-  squeeze_analysis: {
-    historical_min_width: number;
-    current_percentile: number;
-    experience_rule_met: boolean;
-    percentile_rule_met: boolean;
-    consecutive_days: number;
-    dual_criteria_met: boolean;
+  signals: {
+    position: {
+      type: 'above_upper' | 'below_lower' | 'between_bands';
+      description: string;
+    };
+    squeeze: {
+      type: 'squeezing' | 'expanding' | 'none';
+      description: string;
+    };
+    trend: {
+      type: 'up' | 'down' | 'sideways';
+      description: string;
+    };
   };
-  squeeze_signal: {
-    signal_level: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH_INTENSITY';
-    signal_name: string;
-    description: string;
-  };
-  indicators: {
-    experience_condition: string;
-    percentile_condition: string;
-  };
-  risk_warnings: {
-    breakdown_below_lower: 'warning' | 'none';
-    breakout_above_upper: 'warning' | 'none';
+  overall: {
+    trend: 'bullish' | 'bearish' | 'neutral';
+    strength: number;
     description: string;
   };
 }
-
-export interface TrendIndicator {
-  symbol: string;
-  name: string;
-  price: number;
-  ma20: number;
-  ma20Signal: MA20Signal;
-  macdSignal: MACDSignal | null;
-  adxSignal: ADXSignal | null;
-  bollingerSignal: BollingerSignal | null;
-  updatedAt: number;
-}
-
-export type FilterMetric = 'score' | 'avgAmp' | 'medAmp' | 'maxDrawdown' | 'totalReturn' | 'suggestedGrid';
-export type FilterPeriod = 0 | 1 | 2; // 0=1Y, 1=2Y, 2=3Y
-export type FilterOperator = '>' | '<' | '>=' | '<=';
 
 export interface FilterCondition {
   id: string;
@@ -243,222 +185,251 @@ export interface FilterCondition {
   operator: FilterOperator;
   value: number;
 }
+
+export type FilterMetric = 'score' | 'avgAmp' | 'medAmp' | 'maxDrawdown' | 'totalReturn' | 'suggestedGrid';
+
+export type FilterPeriod = 0 | 1 | 2;
+
+export type FilterOperator = '>' | '<' | '>=' | '<=';
+
 export interface FilterPreset {
   id: string;
   name: string;
   conditions: FilterCondition[];
 }
 
+export interface DiagnosisReport {
+  score: number;
+  rating: string;
+  backtest: BacktestResult;
+  details?: {
+    cumulativeReturn?: number;
+    sharpeRatio?: number;
+    winRate?: number;
+    profitFactor?: number;
+  };
+}
+
+export interface TrendIndicator {
+  symbol: string;
+  name: string;
+  ma20?: MA20Signal;
+  macd?: MACDSignal;
+  dmi?: DmiSignal;
+  boll?: BollSignal;
+  updatedAt?: number;
+}
+
 export interface MACDResult {
-  date: string;
-  ema12: number;
-  ema26: number;
   dif: number;
   dea: number;
   histogram: number;
 }
 
 export interface DMIResult {
-  date: string;
-  tr: number;
-  plus_dm: number;
-  minus_dm: number;
-  atr: number;
   plus_di: number;
   minus_di: number;
-  dx: number;
   adx: number;
+  dx: number;
 }
 
 export interface BOLLResult {
-  date: string;
-  middle_band: number;
-  std_dev: number;
   upper_band: number;
+  middle_band: number;
   lower_band: number;
   width: number;
 }
 
 export interface EXPMAResult {
-  date: string;
   exp1: number;
   exp2: number;
 }
 
 export interface ENEResult {
-  date: string;
-  middle: number;
   upper: number;
+  middle: number;
   lower: number;
 }
 
 export interface BBIResult {
-  date: string;
+  bbi: number;
   ma3: number;
   ma6: number;
   ma12: number;
   ma24: number;
-  bbi: number;
 }
 
 export interface TRIXResult {
-  date: string;
-  ema1: number;
-  ema2: number;
-  ema3: number;
   trix: number;
   matrix: number;
 }
 
 export interface KDJResult {
-  date: string;
-  rsv: number;
   k: number;
   d: number;
   j: number;
 }
 
 export interface SKDJResult {
-  date: string;
-  rsv: number;
   slow_k: number;
   slow_d: number;
 }
 
 export interface RSIResult {
-  date: string;
   rsi6: number;
   rsi12: number;
   rsi24: number;
 }
 
 export interface CCIResult {
-  date: string;
-  tp: number;
-  ma_tp: number;
-  md: number;
   cci: number;
 }
 
 export interface WRResult {
-  date: string;
   wr10: number;
 }
 
 export interface LWRResult {
-  date: string;
   lwr10: number;
 }
 
 export interface BIASResult {
-  date: string;
   bias6: number;
   bias12: number;
   bias24: number;
 }
 
 export interface MTMResult {
-  date: string;
   mtm12: number;
   mtm_ma6: number;
 }
 
 export interface OBVResult {
-  date: string;
   obv: number;
   maobv30: number;
 }
 
 export interface VRResult {
-  date: string;
-  avs: number;
-  bvs: number;
-  cvs: number;
   vr: number;
 }
 
 export interface BRARResult {
-  date: string;
-  ar: number;
   br: number;
+  ar: number;
 }
 
 export interface CRResult {
-  date: string;
-  mid: number;
   cr: number;
-  ma5: number;
-  ma10: number;
-  ma20: number;
 }
 
 export interface DMAResult {
-  date: string;
   dif: number;
   ama: number;
 }
 
 export interface LONResult {
-  date: string;
-  money_flow: number;
   lon: number;
-  lonma: number;
 }
 
-export interface BullBearLineResult {
-  date: string;
-  bull_bear_line: number;
+export interface TrendResults {
+  macd?: MACDResult;
+  dmi?: DMIResult;
+  boll?: BOLLResult;
+  expma?: EXPMAResult;
+  ene?: ENEResult;
+  bbi?: BBIResult;
+  trix?: TRIXResult;
+}
+
+export interface OscillatorResults {
+  kdj?: KDJResult;
+  skdj?: SKDJResult;
+  rsi?: RSIResult;
+  cci?: CCIResult;
+  wr?: WRResult;
+  lwr?: LWRResult;
+  bias?: BIASResult;
+  mtm?: MTMResult;
+}
+
+export interface VolumeResults {
+  latestVolume: number;
+  latestTurnover: number;
+  obv?: OBVResult;
+  vr?: VRResult;
+  brar?: BRARResult;
+  cr?: CRResult;
+  dma?: DMAResult;
+  lon?: LONResult;
 }
 
 export interface ComprehensiveIndicatorReport {
   symbol: string;
   name: string;
   latestPrice: number;
-  dataCount: number;
   latestDate: string;
+  dataCount: number;
   calculatedAt: string;
-
-  trend: {
-    macd?: MACDResult;
-    dmi?: DMIResult;
-    boll?: BOLLResult;
-    expma?: EXPMAResult;
-    ene?: ENEResult;
-    bbi?: BBIResult;
-    trix?: TRIXResult;
-  };
-
-  oscillator: {
-    kdj?: KDJResult;
-    skdj?: SKDJResult;
-    rsi?: RSIResult;
-    cci?: CCIResult;
-    wr?: WRResult;
-    lwr?: LWRResult;
-    bias?: BIASResult;
-    mtm?: MTMResult;
-  };
-
-  volume: {
-    obv?: OBVResult;
-    vr?: VRResult;
-    brar?: BRARResult;
-    cr?: CRResult;
-    dma?: DMAResult;
-    lon?: LONResult;
-    bullBearLine?: BullBearLineResult;
-    latestVolume: number;
-    latestTurnover: number;
-  };
+  trend: TrendResults;
+  oscillator: OscillatorResults;
+  volume: VolumeResults;
 }
 
 export interface CalculationRecord {
   symbol: string;
   name: string;
   status: 'pending' | 'calculating' | 'completed' | 'error';
-  progress?: number;
   message?: string;
+  errorMsg?: string;
   report?: ComprehensiveIndicatorReport;
   calculatedAt?: string;
-  errorMsg?: string;
+}
+
+export interface PositionTarget {
+  id: string;
+  name: string;
+  planPercentage: number;
+  actualMarketValue: number;
+}
+
+export interface PositionModule {
+  id: string;
+  name: string;
+  planPercentage: number;
+  targets: PositionTarget[];
+}
+
+export interface PositionPortfolio {
+  id: string;
+  name: string;
+  totalAmount: number;
+  modules: PositionModule[];
+}
+
+export interface PositionAnalysis {
+  totalPlanAmount: number;
+  totalActualAmount: number;
+  modules: PositionModuleAnalysis[];
+}
+
+export interface PositionModuleAnalysis {
+  moduleId: string;
+  moduleName: string;
+  planPercentage: number;
+  planAmount: number;
+  actualAmount: number;
+  actualPercentage: number;
+  amountDeviation: number;
+  percentageDeviation: number;
+  targets: PositionTargetAnalysis[];
+}
+
+export interface PositionTargetAnalysis {
+  targetId: string;
+  targetName: string;
+  planPercentage: number;
+  planAmount: number;
+  actualMarketValue: number;
+  actualPercentage: number;
+  percentageDeviation: number;
 }

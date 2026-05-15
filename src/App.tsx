@@ -54,6 +54,7 @@ import { defaultTrendParams, TrendParams } from './types/params';
 
 import IndicatorCalculatorPanel from './components/IndicatorCalculatorPanel';
 import IndicatorReportPanel from './components/IndicatorReportPanel';
+import PositionManagementPanel from './components/PositionManagementPanel';
 import { calculateAllIndicators, parseKlines } from './services/indicatorCalculator';
 import { CalculationRecord, ComprehensiveIndicatorReport } from './types';
 
@@ -70,7 +71,8 @@ enum AppView {
   TREND_SETTINGS = 'TREND_SETTINGS',
   INDICATOR_DETAIL = 'INDICATOR_DETAIL',
   INDICATOR_CALCULATOR = 'INDICATOR_CALCULATOR',
-  INDICATOR_REPORT = 'INDICATOR_REPORT'
+  INDICATOR_REPORT = 'INDICATOR_REPORT',
+  POSITION_MANAGEMENT = 'POSITION_MANAGEMENT'
 }
 
 export default function App() {
@@ -1127,6 +1129,22 @@ export default function App() {
                      <div className="text-[10px] uppercase tracking-widest opacity-60">Indicator Calc</div>
                    </div>
                  </button>
+
+                 <button 
+                  onClick={() => {
+                    setView(AppView.POSITION_MANAGEMENT);
+                    setShowNavDrawer(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-4 rounded-2xl transition-all ${view === AppView.POSITION_MANAGEMENT ? 'bg-indigo-50 text-indigo-700 font-bold' : 'hover:bg-slate-50 text-slate-600 font-medium'}`}
+                 >
+                   <div className={`p-2 rounded-xl flex-shrink-0 ${view === AppView.POSITION_MANAGEMENT ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}>
+                     <Grid3X3 className="w-5 h-5" />
+                   </div>
+                   <div className="text-left flex-1">
+                     <div className="text-sm">仓位管理</div>
+                     <div className="text-[10px] uppercase tracking-widest opacity-60">Position Mgmt</div>
+                   </div>
+                 </button>
               </div>
             </motion.div>
         )}
@@ -1295,6 +1313,14 @@ export default function App() {
       </div>
     );
   };
+
+  const renderPositionManagement = () => (
+    <div className="flex-1 flex flex-col bg-white overflow-hidden relative w-full min-w-0">
+      <PositionManagementPanel
+        onOpenNav={() => setShowNavDrawer(true)}
+      />
+    </div>
+  );
 
   const renderHome = () => (
     <div className="flex-1 flex flex-col items-center justify-center p-6 bg-white overflow-y-auto">
@@ -2238,6 +2264,11 @@ export default function App() {
         {view === AppView.INDICATOR_REPORT && (
           <motion.div key="indicator-report" className="flex-1 flex flex-col min-h-0 min-w-0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
             {renderIndicatorReport()}
+          </motion.div>
+        )}
+        {view === AppView.POSITION_MANAGEMENT && (
+          <motion.div key="position-management" className="flex-1 flex flex-col min-h-0 min-w-0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            {renderPositionManagement()}
           </motion.div>
         )}
         {(view === AppView.SETTING || view === AppView.GRID || view === AppView.REPORT) && (
