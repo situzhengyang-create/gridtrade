@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Edit2, Check, X, ArrowLeft, AlertTriangle, Clipboard, CheckCheck, Move, Trash, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X, ArrowLeft, AlertTriangle, Clipboard, CheckCheck, Move, Trash, AlertCircle, GripVertical } from 'lucide-react';
 import { PositionPortfolio, PositionModule, PositionTarget } from '../types';
 
 interface PositionSettingsPanelProps {
@@ -50,6 +50,8 @@ export default function PositionSettingsPanel({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [movingTargetId, setMovingTargetId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'modules' | 'targets'>('modules');
+  const [draggedTarget, setDraggedTarget] = useState<{ target: PositionTarget; sourceModuleId: string } | null>(null);
+  const [dropTargetModuleId, setDropTargetModuleId] = useState<string | null>(null);
 
   const totalModulePercentage = useMemo(() => {
     return portfolio.modules.reduce((sum, m) => sum + m.planPercentage, 0);
@@ -362,6 +364,31 @@ export default function PositionSettingsPanel({
     setMovingTargetId(null);
   };
 
+  const handleDragStart = (e: React.DragEvent, target: PositionTarget, sourceModuleId: string) => {
+    setDraggedTarget({ target, sourceModuleId });
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', target.id);
+  };
+
+  const handleDragOver = (e: React.DragEvent, moduleId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDropTargetModuleId(moduleId);
+  };
+
+  const handleDragLeave = () => {
+    setDropTargetModuleId(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetModuleId: string) => {
+    e.preventDefault();
+    if (draggedTarget && draggedTarget.sourceModuleId !== targetModuleId) {
+      handleMoveTarget(draggedTarget.target.id, targetModuleId);
+    }
+    setDraggedTarget(null);
+    setDropTargetModuleId(null);
+  };
+
   const handleSaveTargetName = (moduleId: string, targetId: string, newName: string) => {
     onPortfolioChange({
       ...portfolio,
@@ -536,7 +563,15 @@ export default function PositionSettingsPanel({
 
               <div className="space-y-3">
                 {portfolio.modules.map((module) => (
-                  <div key={module.id} className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                  <div
+                    key={module.id}
+                    className={`bg-white border rounded-lg overflow-hidden transition-colors ${
+                      dropTargetModuleId === module.id ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200'
+                    }`}
+                    onDragOver={(e) => handleDragOver(e, module.id)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, module.id)}
+                  >
                     <div className="px-3 py-2 flex items-center justify-between bg-slate-50/50">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded bg-indigo-100 flex items-center justify-center">
@@ -604,34 +639,38 @@ export default function PositionSettingsPanel({
                       </div>
 
                       {module.targets.length === 0 ? (
-                        <div className="text-center py-3 text-xs text-slate-400">
-                          暂无标的
+                        <div className="text-center py-4 text-xs text-slate-400 border-2 border-dashed border-slate-200 rounded-lg">
+                          拖拽标的到此处，或点击添加按钮
                         </div>
                       ) : (
                         <div className="space-y-2">
                           {module.targets.map((target) => (
-                            <div key={target.id} className="bg-slate-50 rounded p-2">
-                              <div className="flex items-center gap-2">
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-sm font-bold text-slate-800 truncate">{target.name}</div>
-                                  <div className="text-[10px] text-slate-500">
-                                    计划 {formatPercentage(target.planPercentage)}
-                                  </div>
+                            <div
+                              key={target.id}
+                              draggable
+                              onDragStart={(e) => handleDragStart(e, target, module.id)}
+                              className="bg-slate-50 rounded p-2 flex items-center gap-2 cursor-move hover:bg-slate-100 transition-colors group"
+                            >
+                              <GripVertical className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-bold text-slate-800 truncate">{target.name}</div>
+                                <div className="text-[10px] text-slate-500">
+                                  计划 {formatPercentage(target.planPercentage)}
                                 </div>
-                                <input
-                                  type="number"
-                                  value={marketValueInput[target.id] || target.actualMarketValue}
-                                  onChange={(e) => handleMarketValueChange(target.id, e.target.value)}
-                                  className="w-32 px-2 py-1.5 text-sm border border-slate-200 rounded outline-none focus:border-indigo-500 text-right font-mono"
-                                />
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    onClick={() => handleDeleteTarget(module.id, target.id)}
-                                    className="p-1 hover:bg-red-50 rounded"
-                                  >
-                                    <Trash className="w-3 h-3 text-red-400" />
-                                  </button>
-                                </div>
+                              </div>
+                              <input
+                                type="number"
+                                value={marketValueInput[target.id] || target.actualMarketValue}
+                                onChange={(e) => handleMarketValueChange(target.id, e.target.value)}
+                                className="w-32 px-2 py-1.5 text-sm border border-slate-200 rounded outline-none focus:border-indigo-500 text-right font-mono"
+                              />
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => handleDeleteTarget(module.id, target.id)}
+                                  className="p-1 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                  <Trash className="w-3 h-3 text-red-400" />
+                                </button>
                               </div>
                             </div>
                           ))}

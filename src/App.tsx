@@ -2271,7 +2271,7 @@ export default function App() {
             {renderPositionManagement()}
           </motion.div>
         )}
-        {(view === AppView.SETTING || view === AppView.GRID || view === AppView.REPORT) && (
+        {(view === AppView.SETTING || view === AppView.GRID) && (
           <motion.div key="indicator-detail" className="flex-1 flex flex-col min-h-0 min-w-0" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
             {renderIndicatorDetail()}
           </motion.div>

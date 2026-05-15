@@ -13,30 +13,38 @@ const defaultPortfolio: PositionPortfolio = {
   totalAmount: 10000000,
   modules: [
     {
-      id: 'stock',
-      name: '股票',
-      planPercentage: 60,
+      id: 'core',
+      name: '核心',
+      planPercentage: 40,
       targets: [
-        { id: 'tencent', name: '腾讯', planPercentage: 40, actualMarketValue: 2500000 },
-        { id: 'alibaba', name: '阿里巴巴', planPercentage: 30, actualMarketValue: 2000000 },
-        { id: 'moutai', name: '茅台', planPercentage: 30, actualMarketValue: 1800000 },
+        { id: 'core1', name: '核心资产1', planPercentage: 50, actualMarketValue: 2000000 },
+        { id: 'core2', name: '核心资产2', planPercentage: 50, actualMarketValue: 2000000 },
       ],
     },
     {
-      id: 'bond',
-      name: '债券',
+      id: 'offense',
+      name: '进攻',
       planPercentage: 30,
       targets: [
-        { id: 'gov_bond', name: '国债', planPercentage: 60, actualMarketValue: 1800000 },
-        { id: 'corp_bond', name: '企业债', planPercentage: 40, actualMarketValue: 1200000 },
+        { id: 'offense1', name: '成长股', planPercentage: 60, actualMarketValue: 1800000 },
+        { id: 'offense2', name: '主题投资', planPercentage: 40, actualMarketValue: 1200000 },
       ],
     },
     {
-      id: 'cash',
-      name: '现金',
-      planPercentage: 10,
+      id: 'hedge',
+      name: '对冲',
+      planPercentage: 15,
       targets: [
-        { id: 'cash_deposit', name: '活期存款', planPercentage: 100, actualMarketValue: 800000 },
+        { id: 'hedge1', name: '对冲工具', planPercentage: 100, actualMarketValue: 1500000 },
+      ],
+    },
+    {
+      id: 'defense',
+      name: '防守',
+      planPercentage: 15,
+      targets: [
+        { id: 'defense1', name: '现金', planPercentage: 60, actualMarketValue: 900000 },
+        { id: 'defense2', name: '国债', planPercentage: 40, actualMarketValue: 600000 },
       ],
     },
   ],
