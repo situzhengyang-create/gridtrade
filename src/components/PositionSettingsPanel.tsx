@@ -538,7 +538,10 @@ export default function PositionSettingsPanel({
     let tempPortfolio = { ...portfolio };
     tempPortfolio.modules = tempPortfolio.modules.map(module => {
       let found = false;
-      const newCategories = module.categories.map(category => ({
+      const categories = module.categories || [];
+      const moduleTargets = module.targets || [];
+      
+      const newCategories = categories.map(category => ({
         ...category,
         targets: category.targets.filter(target => {
           if (target.id === targetId) {
@@ -553,7 +556,7 @@ export default function PositionSettingsPanel({
       }));
       
       if (!found) {
-        const newTargets = module.targets.filter(target => {
+        const newTargets = moduleTargets.filter(target => {
           if (target.id === targetId) {
             movedTarget = target;
             sourceModuleId = module.id;
@@ -564,17 +567,20 @@ export default function PositionSettingsPanel({
         });
         return { ...module, categories: newCategories, targets: newTargets };
       }
-      return { ...module, categories: newCategories };
+      return { ...module, categories: newCategories, targets: moduleTargets };
     });
 
     if (movedTarget && sourceModuleId && (sourceModuleId !== newModuleId || sourceCategoryId !== newCategoryId)) {
       tempPortfolio.modules = tempPortfolio.modules.map(module => {
         if (module.id !== newModuleId) return module;
         
+        const categories = module.categories || [];
+        const moduleTargets = module.targets || [];
+        
         if (newCategoryId) {
           return {
             ...module,
-            categories: module.categories.map(category =>
+            categories: categories.map(category =>
               category.id === newCategoryId
                 ? { ...category, targets: [...category.targets, { ...movedTarget!, categoryId: newCategoryId }] }
                 : category
@@ -583,7 +589,7 @@ export default function PositionSettingsPanel({
         }
         return {
           ...module,
-          targets: [...module.targets, { ...movedTarget!, categoryId: undefined }],
+          targets: [...moduleTargets, { ...movedTarget!, categoryId: undefined }],
         };
       });
       onPortfolioChange(tempPortfolio);
