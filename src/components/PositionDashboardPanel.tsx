@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
-import { Menu, Settings, TrendingUp, TrendingDown, Minus } from 'lucide-react';
-import { PositionPortfolio, PositionAnalysis, PositionModuleAnalysis, PositionTargetAnalysis } from '../types';
+import { Menu, Settings, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronRight } from 'lucide-react';
+import { PositionPortfolio, PositionAnalysis, PositionModuleAnalysis, PositionCategoryAnalysis, PositionTargetAnalysis } from '../types';
 
 interface PositionDashboardPanelProps {
   portfolio: PositionPortfolio;
@@ -51,20 +51,71 @@ export default function PositionDashboardPanel({
   onOpenNav,
   onOpenSettings,
 }: PositionDashboardPanelProps) {
+  const [expandedModules, setExpandedModules] = React.useState<Set<string>>(new Set(portfolio.modules.map(m => m.id)));
+  const [expandedCategories, setExpandedCategories] = React.useState<Set<string>>(new Set());
+
   const analysis: PositionAnalysis = useMemo(() => {
     const totalPlanAmount = totalAmount;
     let totalActualAmount = 0;
 
     const modules: PositionModuleAnalysis[] = portfolio.modules.map(module => {
       const planAmount = totalAmount * (module.planPercentage / 100);
-      const actualAmount = module.targets.reduce((sum, t) => sum + t.actualMarketValue, 0);
+      const categories = module.categories || [];
+      const targets = module.targets || [];
+      
+      let actualAmount = 0;
+      categories.forEach(category => {
+        category.targets.forEach(target => {
+          actualAmount += target.actualMarketValue;
+        });
+      });
+      targets.forEach(target => {
+        actualAmount += target.actualMarketValue;
+      });
+      
       totalActualAmount += actualAmount;
 
       const actualPercentage = totalActualAmount > 0 ? (actualAmount / totalActualAmount) * 100 : 0;
       const amountDeviation = actualAmount - planAmount;
       const percentageDeviation = actualPercentage - module.planPercentage;
 
-      const targets: PositionTargetAnalysis[] = module.targets.map(target => {
+      const categoryAnalysis: PositionCategoryAnalysis[] = categories.map(category => {
+        const categoryPlanAmount = planAmount * (category.planPercentage / 100);
+        const categoryActualAmount = category.targets.reduce((sum, t) => sum + t.actualMarketValue, 0);
+        const categoryActualPercentage = actualAmount > 0 ? (categoryActualAmount / actualAmount) * 100 : 0;
+        const categoryAmountDeviation = categoryActualAmount - categoryPlanAmount;
+        const categoryPercentageDeviation = categoryActualPercentage - category.planPercentage;
+
+        const categoryTargets: PositionTargetAnalysis[] = category.targets.map(target => {
+          const targetPlanAmount = categoryPlanAmount * (target.planPercentage / 100);
+          const targetActualPercentage = categoryActualAmount > 0 ? (target.actualMarketValue / categoryActualAmount) * 100 : 0;
+          const targetPercentageDeviation = targetActualPercentage - target.planPercentage;
+
+          return {
+            targetId: target.id,
+            targetName: target.name,
+            planPercentage: target.planPercentage,
+            planAmount: targetPlanAmount,
+            actualMarketValue: target.actualMarketValue,
+            actualPercentage: targetActualPercentage,
+            percentageDeviation: targetPercentageDeviation,
+          };
+        });
+
+        return {
+          categoryId: category.id,
+          categoryName: category.name,
+          planPercentage: category.planPercentage,
+          planAmount: categoryPlanAmount,
+          actualAmount: categoryActualAmount,
+          actualPercentage: categoryActualPercentage,
+          amountDeviation: categoryAmountDeviation,
+          percentageDeviation: categoryPercentageDeviation,
+          targets: categoryTargets,
+        };
+      });
+
+      const directTargets: PositionTargetAnalysis[] = targets.map(target => {
         const targetPlanAmount = planAmount * (target.planPercentage / 100);
         const targetActualPercentage = actualAmount > 0 ? (target.actualMarketValue / actualAmount) * 100 : 0;
         const targetPercentageDeviation = targetActualPercentage - target.planPercentage;
@@ -80,6 +131,11 @@ export default function PositionDashboardPanel({
         };
       });
 
+      const allTargets: PositionTargetAnalysis[] = [
+        ...categoryAnalysis.flatMap(c => c.targets),
+        ...directTargets,
+      ];
+
       return {
         moduleId: module.id,
         moduleName: module.name,
@@ -89,7 +145,8 @@ export default function PositionDashboardPanel({
         actualPercentage,
         amountDeviation,
         percentageDeviation,
-        targets,
+        categories: categoryAnalysis,
+        targets: allTargets,
       };
     });
 
@@ -97,6 +154,30 @@ export default function PositionDashboardPanel({
   }, [portfolio, totalAmount]);
 
   const overallDeviation = analysis.totalActualAmount - analysis.totalPlanAmount;
+
+  const toggleModule = (moduleId: string) => {
+    setExpandedModules(prev => {
+      const next = new Set(prev);
+      if (next.has(moduleId)) {
+        next.delete(moduleId);
+      } else {
+        next.add(moduleId);
+      }
+      return next;
+    });
+  };
+
+  const toggleCategory = (categoryId: string) => {
+    setExpandedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(categoryId)) {
+        next.delete(categoryId);
+      } else {
+        next.add(categoryId);
+      }
+      return next;
+    });
+  };
 
   return (
     <div className="flex-1 flex flex-col bg-white overflow-hidden">
@@ -148,7 +229,7 @@ export default function PositionDashboardPanel({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-50">
-                    <th className="px-3 py-2 text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider">模块</th>
+                    <th className="px-3 py-2 text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider">层级</th>
                     <th className="px-3 py-2 text-right text-[10px] font-bold text-slate-500 uppercase tracking-wider">计划%</th>
                     <th className="px-3 py-2 text-right text-[10px] font-bold text-slate-500 uppercase tracking-wider">实际%</th>
                     <th className="px-3 py-2 text-right text-[10px] font-bold text-slate-500 uppercase tracking-wider">偏差</th>
@@ -161,7 +242,12 @@ export default function PositionDashboardPanel({
                     <React.Fragment key={module.moduleId}>
                       <tr className="hover:bg-slate-50/50">
                         <td className="px-3 py-3">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 cursor-pointer" onClick={() => toggleModule(module.moduleId)}>
+                            {expandedModules.has(module.moduleId) ? (
+                              <ChevronDown className="w-4 h-4 text-slate-400" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4 text-slate-400" />
+                            )}
                             <div className={`w-6 h-6 rounded flex items-center justify-center ${getDeviationBgColor(module.percentageDeviation)}`}>
                               <span className="text-xs font-bold text-slate-700">{module.moduleName.charAt(0)}</span>
                             </div>
@@ -179,20 +265,87 @@ export default function PositionDashboardPanel({
                         <td className="px-3 py-3 text-right font-mono text-slate-600">¥{formatCurrency(module.planAmount)}</td>
                         <td className={`px-3 py-3 text-right font-mono ${getDeviationColor(module.percentageDeviation)}`}>¥{formatCurrency(module.actualAmount)}</td>
                       </tr>
-                      {module.targets.map((target) => (
-                        <tr key={target.targetId} className="bg-slate-50/30">
-                          <td className="px-3 py-2 pl-12">
-                            <span className="text-slate-600">{target.targetName}</span>
-                          </td>
-                          <td className="px-3 py-2 text-right text-slate-500 text-xs">{formatPercentage(target.planPercentage)}</td>
-                          <td className="px-3 py-2 text-right text-slate-500 text-xs">{formatPercentage(target.actualPercentage)}</td>
-                          <td className={`px-3 py-2 text-right text-xs ${getDeviationColor(target.percentageDeviation)}`}>
-                            {target.percentageDeviation > 0 ? '+' : ''}{formatPercentage(target.percentageDeviation)}
-                          </td>
-                          <td className="px-3 py-2 text-right font-mono text-slate-400 text-xs">¥{formatCurrency(target.planAmount)}</td>
-                          <td className="px-3 py-2 text-right font-mono text-slate-600 text-xs">¥{formatCurrency(target.actualMarketValue)}</td>
-                        </tr>
-                      ))}
+
+                      {expandedModules.has(module.moduleId) && (
+                        <React.Fragment key={`module-content-${module.moduleId}`}>
+                          {module.categories.map((category) => (
+                            <React.Fragment key={category.categoryId}>
+                              <tr className="bg-slate-50/30">
+                                <td className="px-3 py-2 pl-10">
+                                  <div className="flex items-center gap-2 cursor-pointer" onClick={() => toggleCategory(category.categoryId)}>
+                                    {expandedCategories.has(category.categoryId) ? (
+                                      <ChevronDown className="w-3 h-3 text-slate-400" />
+                                    ) : (
+                                      <ChevronRight className="w-3 h-3 text-slate-400" />
+                                    )}
+                                    <span className="text-sm font-bold text-slate-600">{category.categoryName}</span>
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2 text-right text-slate-500">{formatPercentage(category.planPercentage)}</td>
+                                <td className="px-3 py-2 text-right text-slate-500">{formatPercentage(category.actualPercentage)}</td>
+                                <td className={`px-3 py-2 text-right ${getDeviationColor(category.percentageDeviation)}`}>
+                                  <div className="flex items-center justify-end gap-1">
+                                    {getDeviationIcon(category.percentageDeviation)}
+                                    {category.percentageDeviation > 0 ? '+' : ''}{formatPercentage(category.percentageDeviation)}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2 text-right font-mono text-slate-400">¥{formatCurrency(category.planAmount)}</td>
+                                <td className="px-3 py-2 text-right font-mono text-slate-600">¥{formatCurrency(category.actualAmount)}</td>
+                              </tr>
+
+                              {expandedCategories.has(category.categoryId) ? category.targets.map((target) => (
+                                <tr key={`target-${target.targetId}`} className="bg-slate-50/50">
+                                  <td className="px-3 py-2 pl-16">
+                                    <span className="text-slate-500">{target.targetName}</span>
+                                  </td>
+                                  <td className="px-3 py-2 text-right text-slate-400 text-xs">{formatPercentage(target.planPercentage)}</td>
+                                  <td className="px-3 py-2 text-right text-slate-400 text-xs">{formatPercentage(target.actualPercentage)}</td>
+                                  <td className={`px-3 py-2 text-right text-xs ${getDeviationColor(target.percentageDeviation)}`}>
+                                    {target.percentageDeviation > 0 ? '+' : ''}{formatPercentage(target.percentageDeviation)}
+                                  </td>
+                                  <td className="px-3 py-2 text-right font-mono text-slate-400 text-xs">¥{formatCurrency(target.planAmount)}</td>
+                                  <td className="px-3 py-2 text-right font-mono text-slate-500 text-xs">¥{formatCurrency(target.actualMarketValue)}</td>
+                                </tr>
+                              )) : null}
+                            </React.Fragment>
+                          ))}
+
+                          {module.targets.length > 0 && (
+                            <React.Fragment key={`direct-targets-${module.moduleId}`}>
+                              <tr className="bg-slate-50/30">
+                                <td className="px-3 py-2 pl-10">
+                                  <span className="text-sm font-bold text-slate-600">直接标的</span>
+                                </td>
+                                <td className="px-3 py-2 text-right text-slate-400">-</td>
+                                <td className="px-3 py-2 text-right text-slate-400">-</td>
+                                <td className="px-3 py-2 text-right text-slate-400">-</td>
+                                <td className="px-3 py-2 text-right font-mono text-slate-400">-</td>
+                                <td className="px-3 py-2 text-right font-mono text-slate-400">-</td>
+                              </tr>
+                              {module.targets.map((target) => {
+                                const targetPlanAmount = module.planAmount * (target.planPercentage / 100);
+                                const targetActualPercentage = module.actualAmount > 0 ? (target.actualMarketValue / module.actualAmount) * 100 : 0;
+                                const targetPercentageDeviation = targetActualPercentage - target.planPercentage;
+
+                                return (
+                                  <tr key={target.id} className="bg-slate-50/50">
+                                    <td className="px-3 py-2 pl-16">
+                                      <span className="text-slate-500">{target.name}</span>
+                                    </td>
+                                    <td className="px-3 py-2 text-right text-slate-400 text-xs">{formatPercentage(target.planPercentage)}</td>
+                                    <td className="px-3 py-2 text-right text-slate-400 text-xs">{formatPercentage(targetActualPercentage)}</td>
+                                    <td className={`px-3 py-2 text-right text-xs ${getDeviationColor(targetPercentageDeviation)}`}>
+                                      {targetPercentageDeviation > 0 ? '+' : ''}{formatPercentage(targetPercentageDeviation)}
+                                    </td>
+                                    <td className="px-3 py-2 text-right font-mono text-slate-400 text-xs">¥{formatCurrency(targetPlanAmount)}</td>
+                                    <td className="px-3 py-2 text-right font-mono text-slate-500 text-xs">¥{formatCurrency(target.actualMarketValue)}</td>
+                                  </tr>
+                                );
+                              })}
+                            </React.Fragment>
+                          )}
+                        </React.Fragment>
+                      )}
                     </React.Fragment>
                   ))}
                 </tbody>

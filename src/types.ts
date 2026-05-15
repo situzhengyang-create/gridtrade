@@ -390,12 +390,21 @@ export interface PositionTarget {
   name: string;
   planPercentage: number;
   actualMarketValue: number;
+  categoryId?: string;
+}
+
+export interface PositionCategory {
+  id: string;
+  name: string;
+  planPercentage: number;
+  targets: PositionTarget[];
 }
 
 export interface PositionModule {
   id: string;
   name: string;
   planPercentage: number;
+  categories: PositionCategory[];
   targets: PositionTarget[];
 }
 
@@ -412,6 +421,18 @@ export interface PositionAnalysis {
   modules: PositionModuleAnalysis[];
 }
 
+export interface PositionCategoryAnalysis {
+  categoryId: string;
+  categoryName: string;
+  planPercentage: number;
+  planAmount: number;
+  actualAmount: number;
+  actualPercentage: number;
+  amountDeviation: number;
+  percentageDeviation: number;
+  targets: PositionTargetAnalysis[];
+}
+
 export interface PositionModuleAnalysis {
   moduleId: string;
   moduleName: string;
@@ -421,6 +442,7 @@ export interface PositionModuleAnalysis {
   actualPercentage: number;
   amountDeviation: number;
   percentageDeviation: number;
+  categories: PositionCategoryAnalysis[];
   targets: PositionTargetAnalysis[];
 }
 
